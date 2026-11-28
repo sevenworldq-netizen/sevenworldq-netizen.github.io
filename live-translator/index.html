@@ -7,7 +7,8 @@
 <style>
 body{font-family:sans-serif;max-width:560px;margin:40px auto;padding:0 16px;line-height:1.7;color:#222}
 h1{font-size:26px}
-button{font-size:20px;padding:14px 28px;background:#0a7d4d;color:#fff;border:0;border-radius:10px;cursor:pointer}
+button{font-size:18px;padding:14px 24px;background:#0a7d4d;color:#fff;border:0;border-radius:10px;cursor:pointer;display:block;width:100%;margin:10px 0}
+button.alt{background:#155e9c}
 button:disabled{opacity:.5;cursor:default}
 #status{margin-top:16px;font-size:15px;white-space:pre-line}
 .muted{color:#666;font-size:14px}
@@ -17,24 +18,41 @@ code{word-break:break-all;font-size:12px}
 <body>
 <h1>📱 ቀጥታ ትርጉም v1.5</h1>
 <p>የቀጥታ ትርጉም app — YouTube ቪዲዮን በእንግሊዝኛ (ወይም አረብኛ፣ ስፓኒሽ፣ ቻይንኛ፣ ሩሲያኛ፣ ዕብራይስጥ፣ ጀርመን) እያዳመጥክ በአማርኛ ይተረጉምልሃል።</p>
-<p><b>ስሪት፦</b> 1.5 &nbsp;•&nbsp; <b>መጠን፦</b> 22.25 MB &nbsp;•&nbsp; <b>ለ Samsung A03s (armv7)</b></p>
-<button id="dl" onclick="downloadApk()">⬇ አውርድ</button>
+<p><b>ስሪት፦</b> 1.5</p>
+<button id="dl-arm" onclick="downloadApk('armv7')">⬇ አውርድ — ለ A03s (armv7, 22 MB)</button>
+<button id="dl-uni" class="alt" onclick="downloadApk('universal')">⬇ አውርድ — ሁለንተናዊ (Universal, 50 MB)<br><span style="font-size:14px">armv7 ካልተጫነ ይህን ሞክር</span></button>
 <div id="status"></div>
 <h2>እንዴት እንደምትጭን</h2>
 <ol>
-<li>የድሮውን “ቀጥታ ትርጉም” app መጀመሪያ አራግፍ (Settings → Apps → ቀጥታ ትርጉም → Uninstall)።</li>
-<li>ከላይ ያለውን <b>አውርድ</b> ቁልፍ ጫን — download እስኪጠናቀቅ ጠብቅ።</li>
+<li>የድሮውን “ቀጥታ ትርጉም” app <b>ሙሉ በሙሉ</b> አራግፍ (Settings → Apps → ቀጥታ ትርጉም → Uninstall)።</li>
+<li>ስልክህን <b>restart</b> አድርግ።</li>
+<li>ቢያንስ <b>500 MB</b> ነጻ ቦታ እንዳለህ አረጋግጥ።</li>
+<li>ከላይ ካሉት ቁልፎች አንዱን ጫን — download እስኪጠናቀቅ ጠብቅ። armv7 ካልተጫነ <b>ሁለንተናዊውን</b> ሞክር።</li>
 <li>የወረደውን ፋይል ጫን → <b>Install</b> ጫን።</li>
 <li>“Play Protect” ካስጠነቀቀ <b>Install anyway</b> ጫን።</li>
 <li>App drawer ውስጥ አረንጓዴ iconውን (“ቀጥታ ትርጉም”) ፈልግ — ወይም “ቀጥታ” ብለህ ፈልግ።</li>
 </ol>
-<p class="muted">SHA-256፦ <code>ce3b1b51e040b2ac87e86e7f8e163a29bb438f537bdb3f3ebc9cf3481be5cac7</code></p>
+<p class="muted">armv7 SHA-256፦ <code>ce3b1b51e040b2ac87e86e7f8e163a29bb438f537bdb3f3ebc9cf3481be5cac7</code></p>
+<p class="muted">Universal SHA-256፦ <code>cd213e1bf8d422b978c71da37e8e2a608a1af045059540cd21fd5380627ad91a</code></p>
 <script>
-const PARTS = [];
-for (let i = 1; i <= 15; i++) PARTS.push("LiveTranslator-1.5-armv7.apk.b64.p" + String(i).padStart(2, "0"));
-const EXPECTED_SIZE = 22251245;
-const EXPECTED_SHA = "ce3b1b51e040b2ac87e86e7f8e163a29bb438f537bdb3f3ebc9cf3481be5cac7";
-const FILENAME = "LiveTranslator-1.5-armv7.apk";
+const VARIANTS = {
+  armv7: {
+    prefix: "LiveTranslator-1.5-armv7.apk.b64.p",
+    count: 15,
+    size: 22251245,
+    sha: "ce3b1b51e040b2ac87e86e7f8e163a29bb438f537bdb3f3ebc9cf3481be5cac7",
+    filename: "LiveTranslator-1.5-armv7.apk",
+    btn: "dl-arm"
+  },
+  universal: {
+    prefix: "LiveTranslator-1.5.apk.b64.p",
+    count: 35,
+    size: 52205715,
+    sha: "cd213e1bf8d422b978c71da37e8e2a608a1af045059540cd21fd5380627ad91a",
+    filename: "LiveTranslator-1.5.apk",
+    btn: "dl-uni"
+  }
+};
 
 function b64ToBytes(b64){
   const bin = atob(b64);
@@ -45,27 +63,29 @@ function b64ToBytes(b64){
 function hex(buf){
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
 }
-async function downloadApk(){
-  const btn = document.getElementById("dl");
+async function downloadApk(which){
+  const v = VARIANTS[which];
+  const btn = document.getElementById(v.btn);
   const st = document.getElementById("status");
   btn.disabled = true;
   try {
     let b64 = "";
-    for (let i = 0; i < PARTS.length; i++) {
-      st.textContent = "እያወረድኩ ነው… " + (i+1) + "/15";
-      const r = await fetch(PARTS[i]);
-      if (!r.ok) throw new Error("ክፍል " + (i+1) + " አልተገኘም (HTTP " + r.status + ")");
+    for (let i = 1; i <= v.count; i++) {
+      st.textContent = "እያወረድኩ ነው… " + i + "/" + v.count;
+      const name = v.prefix + String(i).padStart(2, "0");
+      const r = await fetch(name);
+      if (!r.ok) throw new Error("ክፍል " + i + " አልተገኘም (HTTP " + r.status + ")");
       b64 += await r.text();
     }
     st.textContent = "ፋይሉን እያዘጋጀሁ ነው…";
     const bytes = b64ToBytes(b64);
-    if (bytes.length !== EXPECTED_SIZE) throw new Error("መጠኑ ትክክል አይደለም: " + bytes.length);
+    if (bytes.length !== v.size) throw new Error("መጠኑ ትክክል አይደለም: " + bytes.length);
     const digest = await crypto.subtle.digest("SHA-256", bytes);
-    if (hex(digest) !== EXPECTED_SHA) throw new Error("SHA-256 አልተዛመደም — እንደገና ሞክር");
+    if (hex(digest) !== v.sha) throw new Error("SHA-256 አልተዛመደም — እንደገና ሞክር");
     const blob = new Blob([bytes], {type: "application/vnd.android.package-archive"});
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = FILENAME;
+    a.download = v.filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
