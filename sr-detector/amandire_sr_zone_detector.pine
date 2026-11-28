@@ -1,7 +1,12 @@
 //@version=5
 // ============================================================================
-// AMANDIRE S&R ZONE DETECTOR — v1.2 (MTF-only view)
-// New vs v1.1 (Selam, 28 Nov 2026 — "show only where the MTFs agree"):
+// AMANDIRE S&R ZONE DETECTOR — v1.3 (colour settings)
+// New vs v1.2 (Selam, 28 Nov 2026):
+//   * Colour settings: the "Colours" group in Settings now lets you change
+//     the resistance / support / flipped / violated / HTF box colours and
+//     the zone label text colour. Boxes keep their fill transparency.
+//     (Event labels BOUNCE/BREAK/RETEST keep fixed meaning-colours.)
+// New vs v1.1 (MTF-only view):
 //   * MTF-only view: with "MTF zones only" ON (default), a chart-TF zone is
 //     DRAWN only where the CHECKED timeframes agree with it (confluence ≥
 //     minimum: 3 = chart + 1 HTF, 5 = chart + 2 HTFs, 7 = all 3 HTFs).
@@ -65,16 +70,27 @@ useChart = input.bool(true, "Chart timeframe counts (1 vote)", group=grpM, toolt
 mtfOnly = input.bool(true, "MTF zones only (hide chart zones with no HTF agreement)", group=grpM, tooltip="ON: a chart-TF zone is drawn only where the CHECKED timeframes agree with it. OFF: all chart zones are drawn, as in v1.1. The engine still tracks hidden zones.")
 minConf = input.int(3, "Minimum confluence to show (1 = chart, +2 per HTF)", minval=1, maxval=7, step=2, group=grpM, tooltip="3 = chart + 1 HTF (or 2 HTFs if the chart box is unchecked). 5 = chart + 2 HTFs. 7 = all 3 HTF zones agree.")
 
-// ---------------- Colours ----------------
-resCol  = color.new(color.red, 0)
-resBg   = color.new(color.red, 90)
-supCol  = color.new(color.green, 0)
-supBg   = color.new(color.green, 90)
-flipCol = color.new(color.orange, 0)
-flipBg  = color.new(color.orange, 88)
-deadCol = color.new(color.gray, 0)
-deadBg  = color.new(color.gray, 92)
-htfCol  = color.new(color.blue, 0)
+// ---------------- Colour settings ----------------
+grpC  = "Colours"
+
+resColIn  = input.color(color.red, "Resistance box colour", group=grpC)
+supColIn  = input.color(color.green, "Support box colour", group=grpC)
+flipColIn = input.color(color.orange, "Flipped zone colour", group=grpC)
+deadColIn = input.color(color.gray, "Violated zone colour", group=grpC)
+htfColIn  = input.color(color.blue, "HTF zone colour", group=grpC)
+labTextIn = input.color(color.white, "Zone label text colour", group=grpC, tooltip="Text on the zone labels (and on the blue HTF labels).")
+
+// ---------------- Colours (from the settings above) ----------------
+resCol  = color.new(resColIn, 0)
+resBg   = color.new(resColIn, 90)
+supCol  = color.new(supColIn, 0)
+supBg   = color.new(supColIn, 90)
+flipCol = color.new(flipColIn, 0)
+flipBg  = color.new(flipColIn, 88)
+deadCol = color.new(deadColIn, 0)
+deadBg  = color.new(deadColIn, 92)
+htfCol  = color.new(htfColIn, 0)
+htfBg   = color.new(htfColIn, 88)
 
 // ---------------- State constants ----------------
 ST_ACTIVE   = 0
@@ -195,7 +211,7 @@ refreshLabel(_i) =>
         box.set_border_color(b, bcol)
         box.set_bgcolor(b, bg)
         label.set_color(l, bg)
-        label.set_textcolor(l, sc >= strongThr ? color.white : color.new(color.white, 20))
+        label.set_textcolor(l, sc >= strongThr ? labTextIn : color.new(labTextIn, 20))
     if showLabels
         label.set_text(l, labelText(_i))
         label.set_xy(l, bar_index, array.get(zSide, _i) == 1 ? array.get(zTop, _i) : array.get(zBot, _i))
@@ -287,7 +303,7 @@ addZone(_side, _level, _vol) =>
             color bcol = _side == 1 ? resCol : supCol
             color bbg = _side == 1 ? resBg : supBg
             box nb = box.new(bar_index, top, bar_index + 1, bot, xloc=xloc.bar_index, extend=extend.right, border_color=bcol, bgcolor=bbg)
-            label nl = label.new(bar_index, _side == 1 ? top : bot, "", xloc=xloc.bar_index, style=_side == 1 ? label.style_label_down : label.style_label_up, color=bbg, textcolor=color.white, size=size.small)
+            label nl = label.new(bar_index, _side == 1 ? top : bot, "", xloc=xloc.bar_index, style=_side == 1 ? label.style_label_down : label.style_label_up, color=bbg, textcolor=labTextIn, size=size.small)
             array.push(zTop, top)
             array.push(zBot, bot)
             array.push(zLvl, _level)
@@ -322,8 +338,8 @@ htfUpdate(_slot, _ph, _pl, _atr, _tf) =>
             box.delete(obR)
         if not na(olR)
             label.delete(olR)
-        box nbR = box.new(bar_index, topR, bar_index + 1, botR, xloc=xloc.bar_index, extend=extend.right, border_color=htfCol, bgcolor=color.new(color.blue, 88))
-        label nlR = label.new(bar_index, topR, "HTF " + _tf + " R " + str.tostring(_ph, format.mintick), xloc=xloc.bar_index, style=label.style_label_down, color=color.new(color.blue, 88), textcolor=color.white, size=size.small)
+        box nbR = box.new(bar_index, topR, bar_index + 1, botR, xloc=xloc.bar_index, extend=extend.right, border_color=htfCol, bgcolor=htfBg)
+        label nlR = label.new(bar_index, topR, "HTF " + _tf + " R " + str.tostring(_ph, format.mintick), xloc=xloc.bar_index, style=label.style_label_down, color=htfBg, textcolor=labTextIn, size=size.small)
         array.set(hTop, idxR, topR)
         array.set(hBot, idxR, botR)
         array.set(hLvl, idxR, _ph)
@@ -341,8 +357,8 @@ htfUpdate(_slot, _ph, _pl, _atr, _tf) =>
             box.delete(obS)
         if not na(olS)
             label.delete(olS)
-        box nbS = box.new(bar_index, topS, bar_index + 1, botS, xloc=xloc.bar_index, extend=extend.right, border_color=htfCol, bgcolor=color.new(color.blue, 88))
-        label nlS = label.new(bar_index, botS, "HTF " + _tf + " S " + str.tostring(_pl, format.mintick), xloc=xloc.bar_index, style=label.style_label_up, color=color.new(color.blue, 88), textcolor=color.white, size=size.small)
+        box nbS = box.new(bar_index, topS, bar_index + 1, botS, xloc=xloc.bar_index, extend=extend.right, border_color=htfCol, bgcolor=htfBg)
+        label nlS = label.new(bar_index, botS, "HTF " + _tf + " S " + str.tostring(_pl, format.mintick), xloc=xloc.bar_index, style=label.style_label_up, color=htfBg, textcolor=labTextIn, size=size.small)
         array.set(hTop, idxS, topS)
         array.set(hBot, idxS, botS)
         array.set(hLvl, idxS, _pl)
