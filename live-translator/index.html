@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ቀጥታ ትርጉም v1.6 — አውርድ</title>
+<title>ቀጥታ ትርጉም v1.7 — አውርድ</title>
 <style>
 body{font-family:sans-serif;max-width:560px;margin:40px auto;padding:0 16px;line-height:1.7;color:#222}
 h1{font-size:26px}
@@ -16,10 +16,10 @@ code{word-break:break-all;font-size:12px}
 </style>
 </head>
 <body>
-<h1>📱 ቀጥታ ትርጉም v1.6</h1>
-<p><b>✨ v1.6 አዲስ፦</b> አዲሱ “AQ.” የGemini ቁልፍ አሁን ይቀበላል (የድሮው “AIza” ቁልፍም ይሰራል)። ሌላ ምንም አልተቀየረም።</p>
+<h1>📱 ቀጥታ ትርጉም v1.7</h1>
+<p><b>✨ v1.7 አዲስ፦</b> የGemini ሞዴል ተቀይሯል — 2.0-flash/2.5-flash ጠፍተዋል፣ አሁን 3.8-flash ይጠቀማል (3.6 → 3.5-lite መተኪያዎች አሉት)። ቁልፍህ አልተቀየረም። ሌላ ምንም አልተቀየረም።</p>
 <p>የቀጥታ ትርጉም app — YouTube ቪዲዮን በእንግሊዝኛ (ወይም አረብኛ፣ ስፓኒሽ፣ ቻይንኛ፣ ሩሲያኛ፣ ዕብራይስጥ፣ ጀርመን) እያዳመጥክ በአማርኛ ይተረጉምልሃል።</p>
-<p><b>ስሪት፦</b> 1.6</p>
+<p><b>ስሪት፦</b> 1.7</p>
 <button id="dl-arm" onclick="downloadApk('armv7')">⬇ አውርድ — ለ A03s (armv7, 22 MB)</button>
 <button id="dl-uni" class="alt" onclick="downloadApk('universal')">⬇ አውርድ — ሁለንተናዊ (Universal, 50 MB)<br><span style="font-size:14px">armv7 ካልተጫነ ይህን ሞክር</span></button>
 <div id="status"></div>
@@ -33,24 +33,24 @@ code{word-break:break-all;font-size:12px}
 <li>“Play Protect” ካስጠነቀቀ <b>Install anyway</b> ጫን።</li>
 <li>App drawer ውስጥ አረንጓዴ iconውን (“ቀጥታ ትርጉም”) ፈልግ — ወይም “ቀጥታ” ብለህ ፈልግ።</li>
 </ol>
-<p class="muted">armv7 SHA-256፦ <code>d9b5e41cfd44a73ff47a1e71309615c4fdb0c080ee2776b6e0c234ffa5a64303</code></p>
-<p class="muted">Universal SHA-256፦ <code>0e7af77fc5d5f7872261b4f759a917a2691155bb9babc10e7df20ddd818a537d</code></p>
+<p class="muted">armv7 SHA-256፦ <code>b1da6d7d06e0d81341763084a721a5aca0476e70d8b65c736784040849b0af3f</code></p>
+<p class="muted">Universal SHA-256፦ <code>a96f98d007d6f9ff5c0d7aca8366a4ee2559a5920808bfeb007588e2da17d3ab</code></p>
 <script>
 const VARIANTS = {
   armv7: {
-    prefix: "LiveTranslator-1.6-armv7.apk.b64.p",
+    prefix: "LiveTranslator-1.7-armv7.apk.b64.p",
     count: 15,
     size: 22259437,
-    sha: "d9b5e41cfd44a73ff47a1e71309615c4fdb0c080ee2776b6e0c234ffa5a64303",
-    filename: "LiveTranslator-1.6-armv7.apk",
+    sha: "b1da6d7d06e0d81341763084a721a5aca0476e70d8b65c736784040849b0af3f",
+    filename: "LiveTranslator-1.7-armv7.apk",
     btn: "dl-arm"
   },
   universal: {
-    prefix: "LiveTranslator-1.6.apk.b64.p",
+    prefix: "LiveTranslator-1.7.apk.b64.p",
     count: 35,
     size: 52213907,
-    sha: "0e7af77fc5d5f7872261b4f759a917a2691155bb9babc10e7df20ddd818a537d",
-    filename: "LiveTranslator-1.6.apk",
+    sha: "a96f98d007d6f9ff5c0d7aca8366a4ee2559a5920808bfeb007588e2da17d3ab",
+    filename: "LiveTranslator-1.7.apk",
     btn: "dl-uni"
   }
 };
