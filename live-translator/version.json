@@ -1,15 +1,15 @@
 {
- "armv7Filename": "LiveTranslator-1.8-armv7.apk",
+ "armv7Filename": "LiveTranslator-1.9-armv7.apk",
  "armv7PartCount": 15,
- "armv7Parts": "https://sevenworldq-netizen.github.io/live-translator/LiveTranslator-1.8-armv7.apk.b64.p",
- "armv7Sha256": "7cacf2d8b9eb025079ccf4e6b4c670817b629dde12222d580bb4f0c170e7ef8e",
- "armv7Size": 22259437,
+ "armv7Parts": "https://sevenworldq-netizen.github.io/live-translator/LiveTranslator-1.9-armv7.apk.b64.p",
+ "armv7Sha256": "d8729f88a90b89f087320cabf62ab8b2500a021006add536e00d5e58ff6701af",
+ "armv7Size": 22267629,
  "downloadPage": "https://sevenworldq-netizen.github.io/live-translator/",
- "universalFilename": "LiveTranslator-1.8.apk",
+ "universalFilename": "LiveTranslator-1.9.apk",
  "universalPartCount": 35,
- "universalParts": "https://sevenworldq-netizen.github.io/live-translator/LiveTranslator-1.8.apk.b64.p",
- "universalSha256": "8a81ad85070bf1dae3dd8b59644b3632a20d8bb03eb40d2f8811aa0637740507",
- "universalSize": 52213907,
- "versionCode": 9,
- "versionName": "1.8"
+ "universalParts": "https://sevenworldq-netizen.github.io/live-translator/LiveTranslator-1.9.apk.b64.p",
+ "universalSha256": "65683e8884b531c81a531e69568a6345de69ae61d7aff5e7e5bd2da7a5e749b7",
+ "universalSize": 52222099,
+ "versionCode": 10,
+ "versionName": "1.9"
 }
