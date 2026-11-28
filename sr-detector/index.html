@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amandire S&amp;R Zone Detector — Pine Script v5</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #0f1115; color: #e8e8e8; }
+  header { padding: 18px 16px 8px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p { margin: 6px 0; color: #b9b9b9; font-size: 15px; line-height: 1.5; }
+  .steps { color: #e8e8e8; }
+  .steps b { color: #fff; }
+  #copyBtn {
+    display: block; width: calc(100% - 32px); margin: 12px 16px;
+    padding: 16px; font-size: 19px; font-weight: 700; text-align: center;
+    color: #fff; background: #1a7f37; border: 0; border-radius: 12px; cursor: pointer;
+  }
+  #copyBtn:active { background: #146c2e; }
+  #status { text-align: center; font-size: 16px; min-height: 24px; color: #7ee787; font-weight: 700; }
+  .dl { text-align: center; margin: 4px 0 14px; }
+  .dl a { color: #58a6ff; font-size: 15px; }
+  pre {
+    margin: 0 8px 24px; padding: 12px; overflow-x: auto;
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    font-family: ui-monospace, "DejaVu Sans Mono", monospace; font-size: 12.5px; line-height: 1.45;
+    color: #e6edf3; white-space: pre; tab-size: 4;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Amandire S&amp;R Zone Detector — Pine Script v5</h1>
+  <p class="steps"><b>1.</b> ከታች ያለውን <b>“ኮዱን ቅዳ”</b> ቁልፍ ተጫን &nbsp; <b>2.</b> TradingView Pine Editor ክፈት &nbsp; <b>3.</b> ለጥፍ (Paste) &nbsp; <b>4.</b> Add to chart ተጫን።</p>
+  <p>ኮዱ 520 መስመሮች ነው — ከ PDF እንደሚሆን ፊደሎች አይበታተኑም፣ መስመሮችም አይቀላቀሉም።</p>
+</header>
+<button id="copyBtn" type="button">📋 ኮዱን ቅዳ (520 መስመሮች)</button>
+<div id="status"></div>
+<div class="dl"><a href="amandire_sr_zone_detector.pine" download>ፋይሉን አውርድ (.pine)</a></div>
+<pre id="code">//@version=5
+// ============================================================================
+// AMANDIRE S&amp;R ZONE DETECTOR — v1.0 (28 Nov 2026)
+// A first-of-its-kind S&amp;R zone detector built from Trader Noah&#x27;s own measured
+// research (Mercury study, MTF Zones v2.0/v2.1, 65-page all-videos-and-bots
+// report) + published non-repainting methods.
+//
+// WHAT IT DOES
+//   * Draws support / resistance zones from CONFIRMED pivots only.
+//   * Counts touch EVENTS (close enters the zone) and wick PIERCES separately.
+//   * Scores every zone 0-100 (volume 40% / touches 30% / age 30%).
+//   * Labels touches, bounces, body-close breaks, flip (turncoat) zones,
+//     retests and holds. Flags weakening zones (&gt;= 3 pierces).
+//   * Overlays higher-timeframe zones (15m / 1H / 4H) and scores confluence.
+//   * Alerts on: touch of a STRONG zone, body-close break, retest-held.
+//
+// HONEST EXPECTATIONS — READ THIS
+//   * NO indicator detects zones 100%. Published measurements + our own Mercury
+//     study put zone respect at roughly 40-75%, and random bands hold about as
+//     often as real zones. Respect is NOT a trading edge: Mercury&#x27;s best
+//     indicator (72.57% respected) LOSES money on 1m on both BTC and gold.
+//   * A zone appears only after its pivot CONFIRMS (pivot-length bars late).
+//     That delay is confirmation lag, NOT repainting. Zero lag is impossible:
+//     any &quot;zone&quot; known earlier is a guess that can be redrawn.
+//   * A touch alone is NEVER an entry (Selam&#x27;s rule: sweep + rejection + MSS
+//     required). This indicator marks zones; the entry rules sit on top.
+//
+// NON-REPAINTING CONTRACT
+//   1. Zones are born ONLY from ta.pivothigh / ta.pivotlow (confirmed pivots).
+//   2. Once drawn, a zone NEVER moves. Level/top/bottom are frozen at the
+//      confirmation bar (ATR frozen at the pivot bar).
+//   3. All event detection runs on CLOSED bars only (barstate.isconfirmed),
+//      so a live-bar label can never appear and vanish.
+//   4. HTF data via request.security(..., lookahead_off), maths computed
+//      INSIDE the HTF context. Never lookahead_on without an offset.
+//   5. A break counts ONLY on a candle BODY close past the zone&#x27;s far edge.
+//      A wick through is a sweep/pierce — the zone stays alive.
+//   6. A broken zone is never silently erased: it flips role (turncoat),
+//      turns amber, and is watched for a retest. History is never rewritten.
+//   7. No barstate.islast price labelling or signals anywhere (that
+//      construction repaints). The info table is display-only current
+//      counts, not a signal.
+//
+// HOW TO USE
+//   Paste into the TradingView Pine Editor, &quot;Add to chart&quot;. Default settings
+//   are the measured defaults (pivot 10, half-width 0.5 x ATR(14)).
+//   Strong zones (&gt;= 70) are the most opaque. &quot;HTF&quot; badge = overlaps a
+//   higher-timeframe zone. &quot;CONF xN&quot; = confluence count (chart TF = 1,
+//   each HTF = 2). Weakening = 3+ wick pierces: trade the BREAK, not the bounce.
+// ============================================================================
+
+indicator(&quot;Amandire S&amp;R Zone Detector&quot;, shorttitle=&quot;Amandire SR Zones&quot;, overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// ---------------- Inputs ----------------
+grpZ  = &quot;Zones&quot;
+grpH  = &quot;Higher timeframes (MTF)&quot;
+grpD  = &quot;Display&quot;
+grpA  = &quot;Alerts&quot;
+
+pivLen     = input.int(10, &quot;Pivot length (left = right)&quot;, minval=2, maxval=30, group=grpZ, tooltip=&quot;Zone is born only after this many bars confirm the pivot. Larger = stronger, fewer zones, later appearance. This delay is confirmation lag, NOT repainting.&quot;)
+atrLen     = input.int(14, &quot;ATR length&quot;, minval=1, group=grpZ)
+halfW      = input.float(0.5, &quot;Zone half-width (x ATR)&quot;, minval=0.1, maxval=1.5, step=0.05, group=grpZ, tooltip=&quot;Zone = level +/- half-width x ATR(14), frozen at the pivot bar. Total width = 2 x this. Wider bands respect more often by construction — report the width with any respect rate.&quot;)
+widthMode  = input.string(&quot;Centred&quot;, &quot;Width mode&quot;, options=[&quot;Centred&quot;, &quot;Inward&quot;], group=grpZ, tooltip=&quot;Centred: level +/- half-width x ATR. Inward (Selam-engine style): resistance = [high - fuzz, high], support = [low, low + fuzz], fuzz = ATR(7)/2 x 0.75.&quot;)
+maxZones   = input.int(8, &quot;Max zones per side&quot;, minval=1, maxval=20, group=grpZ)
+mergeDist  = input.float(0.5, &quot;Merge distance (x ATR)&quot;, minval=0.0, step=0.1, group=grpZ, tooltip=&quot;A new pivot within this distance of an existing same-side zone reinforces it (touch +1) instead of drawing a duplicate.&quot;)
+breakConfirm = input.int(1, &quot;Break confirmation closes (1 or 2)&quot;, minval=1, maxval=2, group=grpZ, tooltip=&quot;1 = Selam&#x27;s rule: one body close past the far edge breaks the zone. 2 = needs a 2nd consecutive close. Measured on gold 1m: false breaks fall from ~51% to ~41%, but ~26% of breaks never confirm.&quot;)
+fuzzMult   = input.float(0.75, &quot;Inward fuzz (x ATR(7)/2)&quot;, minval=0.1, step=0.05, group=grpZ)
+
+useHtf1 = input.bool(true, &quot;Show HTF 1 zones&quot;, group=grpH)
+htf1    = input.timeframe(&quot;15&quot;, &quot;HTF 1&quot;, group=grpH)
+useHtf2 = input.bool(true, &quot;Show HTF 2 zones&quot;, group=grpH)
+htf2    = input.timeframe(&quot;60&quot;, &quot;HTF 2&quot;, group=grpH)
+useHtf3 = input.bool(true, &quot;Show HTF 3 zones&quot;, group=grpH)
+htf3    = input.timeframe(&quot;240&quot;, &quot;HTF 3&quot;, group=grpH)
+
+showLabels = input.bool(true, &quot;Show zone labels&quot;, group=grpD)
+showEvents = input.bool(true, &quot;Show event labels (BOUNCE / BREAK / RETEST...)&quot;, group=grpD)
+strongThr  = input.int(70, &quot;Strong zone threshold (0-100)&quot;, minval=1, maxval=100, group=grpD)
+
+alertTouch = input.bool(true, &quot;Alert: touch of a STRONG zone&quot;, group=grpA)
+alertBreak = input.bool(true, &quot;Alert: body-close break of any zone&quot;, group=grpA)
+alertRetest = input.bool(true, &quot;Alert: retest held&quot;, group=grpA)
+
+// ---------------- Colours ----------------
+resCol  = color.new(color.red, 0)
+resBg   = color.new(color.red, 90)
+supCol  = color.new(color.green, 0)
+supBg   = color.new(color.green, 90)
+flipCol = color.new(color.orange, 0)
+flipBg  = color.new(color.orange, 88)
+deadCol = color.new(color.gray, 0)
+deadBg  = color.new(color.gray, 92)
+htfCol  = color.new(color.blue, 0)
+
+// ---------------- State constants ----------------
+ST_ACTIVE = 0   // live zone, waiting
+ST_TOUCHED = 1  // hit within the last 3 bars, bounce/break pending
+ST_FLIPPED = 2  // broken, role reversed, retest watch open (20 bars)
+ST_RETEST = 3   // retest in progress, hold watch (3 bars)
+ST_DONE_OK = 4  // respected (bounce or retest held) — zone stays live
+ST_DONE_BAD = 5 // violated (retest failed / no retest) — greyed, kept visible
+
+// ---------------- Chart-TF zone storage (parallel arrays) ----------------
+var array&lt;float&gt; zTop     = array.new_float()
+var array&lt;float&gt; zBot     = array.new_float()
+var array&lt;float&gt; zLvl     = array.new_float()
+var array&lt;int&gt;   zSide    = array.new_int()    // 1 resistance, -1 support
+var array&lt;int&gt;   zState   = array.new_int()
+var array&lt;float&gt; zTouches = array.new_float()  // quality-weighted touches
+var array&lt;int&gt;   zHits    = array.new_int()    // touch events (close entered)
+var array&lt;int&gt;   zPierces = array.new_int()    // wick-only entries
+var array&lt;int&gt;   zBounces = array.new_int()
+var array&lt;int&gt;   zBorn    = array.new_int()    // bar_index of confirmation
+var array&lt;float&gt; zVol     = array.new_float()  // volume at pivot bar
+var array&lt;box&gt;   zBox     = array.new_box()
+var array&lt;label&gt; zLab     = array.new_label()
+var array&lt;int&gt;   zMark    = array.new_int()    // bar of last touch / break
+var array&lt;int&gt;   zHold    = array.new_int()    // hold-bar counter
+var array&lt;int&gt;   zRetestBar = array.new_int()
+var array&lt;int&gt;   zFirst   = array.new_int()    // first outcome: 0 none, 1 bounce, 2 break
+var array&lt;bool&gt;  zFlipped = array.new_bool()   // role already reversed once
+
+// ---------------- HTF zone storage: latest zone per side per slot (3 slots x 2 sides) ----------------
+var array&lt;float&gt; hTop  = array.new_float(6, na)
+var array&lt;float&gt; hBot  = array.new_float(6, na)
+var array&lt;float&gt; hLvl  = array.new_float(6, na)
+var array&lt;box&gt;   hBox  = array.new_box(6, na)
+var array&lt;label&gt; hLab  = array.new_label(6, na)
+var array&lt;float&gt; hLastPh = array.new_float(3, na)
+var array&lt;float&gt; hLastPl = array.new_float(3, na)
+
+// ---------------- Series ----------------
+atrVal  = ta.atr(atrLen)
+atr7    = ta.atr(7)
+volSMA  = ta.sma(volume, 50)
+ph      = ta.pivothigh(high, pivLen, pivLen)
+pl      = ta.pivotlow(low, pivLen, pivLen)
+
+// Event flags (reset every bar, set only on confirmed bars) — feed alertcondition
+var bool evTouchStrong = false
+var bool evBreak = false
+var bool evRetestHeld = false
+evTouchStrong := false
+evBreak := false
+evRetestHeld := false
+
+// ---------------- Helpers ----------------
+zoneCount(_side) =&gt;
+    int n = 0
+    for i = 0 to array.size(zSide) - 1
+        if array.get(zSide, i) == _side
+            n += 1
+    n
+
+strengthOf(_i) =&gt;
+    float volS = 0.5
+    float vAt = array.get(zVol, _i)
+    if not na(volSMA) and volSMA &gt; 0 and vAt &gt; 0
+        volS := math.min(vAt / volSMA, 3.0) / 3.0
+    float tS = math.min(array.get(zTouches, _i) / 5.0, 1.0)
+    float aS = math.max(1.0 - (bar_index - array.get(zBorn, _i)) / 500.0, 0.0)
+    0.40 * volS + 0.30 * tS + 0.30 * aS
+
+confluenceOf(_i) =&gt;
+    float top = array.get(zTop, _i)
+    float bot = array.get(zBot, _i)
+    int c = 1
+    for s = 0 to 5
+        float ht = array.get(hTop, s)
+        float hb = array.get(hBot, s)
+        if not na(ht) and not na(hb) and ht &gt;= bot and hb &lt;= top
+            c += 2
+    c
+
+labelText(_i) =&gt;
+    string side = array.get(zSide, _i) == 1 ? &quot;R&quot; : &quot;S&quot;
+    string lvl = str.tostring(array.get(zLvl, _i), format.mintick)
+    int str = math.round(strengthOf(_i) * 100)
+    int conf = confluenceOf(_i)
+    string weak = array.get(zPierces, _i) &gt;= 3 ? &quot; WEAK&quot; : &quot;&quot;
+    string flip = array.get(zFlipped, _i) ? &quot; FLIP&quot; : &quot;&quot;
+    string htf = conf &gt; 1 ? &quot; HTF&quot; : &quot;&quot;
+    side + &quot; &quot; + lvl + &quot; · T&quot; + str.tostring(array.get(zHits, _i)) + &quot; · P&quot; + str.tostring(array.get(zPierces, _i)) + &quot; · &quot; + str.tostring(str) + &quot;% · x&quot; + str.tostring(conf) + weak + flip + htf
+
+refreshLabel(_i) =&gt;
+    if showLabels
+        label l = array.get(zLab, _i)
+        int str = math.round(strengthOf(_i) * 100)
+        color bg = array.get(zSide, _i) == 1 ? resBg : supBg
+        if array.get(zState, _i) == ST_DONE_BAD
+            bg := deadBg
+        else if array.get(zFlipped, _i)
+            bg := flipBg
+        label.set_text(l, labelText(_i))
+        label.set_xy(l, bar_index, array.get(zSide, _i) == 1 ? array.get(zTop, _i) : array.get(zBot, _i))
+        label.set_color(l, bg)
+        label.set_textcolor(l, str &gt;= strongThr ? color.white : color.new(color.white, 20))
+
+removeZone(_i) =&gt;
+    box b = array.get(zBox, _i)
+    label l = array.get(zLab, _i)
+    if not na(b)
+        box.delete(b)
+    if not na(l)
+        label.delete(l)
+    array.remove(zTop, _i)
+    array.remove(zBot, _i)
+    array.remove(zLvl, _i)
+    array.remove(zSide, _i)
+    array.remove(zState, _i)
+    array.remove(zTouches, _i)
+    array.remove(zHits, _i)
+    array.remove(zPierces, _i)
+    array.remove(zBounces, _i)
+    array.remove(zBorn, _i)
+    array.remove(zVol, _i)
+    array.remove(zBox, _i)
+    array.remove(zLab, _i)
+    array.remove(zMark, _i)
+    array.remove(zHold, _i)
+    array.remove(zRetestBar, _i)
+    array.remove(zFirst, _i)
+    array.remove(zFlipped, _i)
+
+addZone(_side, _level, _vol) =&gt;
+    // width — ATR frozen at the PIVOT bar (atrVal[pivLen]), not the
+    // confirmation bar, so the zone never breathes after it is drawn
+    float top = na
+    float bot = na
+    if widthMode == &quot;Centred&quot;
+        top := _level + halfW * atrVal[pivLen]
+        bot := _level - halfW * atrVal[pivLen]
+    else
+        float fuzz = atr7[pivLen] / 2 * fuzzMult
+        if _side == 1
+            top := _level
+            bot := _level - fuzz
+        else
+            top := _level + fuzz
+            bot := _level
+    // merge: reinforce an existing same-side zone within mergeDist x ATR
+    bool merged = false
+    for i = 0 to array.size(zLvl) - 1
+        if not merged and array.get(zSide, i) == _side and math.abs(array.get(zLvl, i) - _level) &lt;= mergeDist * atrVal
+            array.set(zTouches, i, array.get(zTouches, i) + 1.0)
+            array.set(zHits, i, array.get(zHits, i) + 1)
+            merged := true
+            refreshLabel(i)
+    if not merged
+        // too-close filter FIRST (WFRX / Zone Bell rule): same-side zones
+        // within 1 x ATR(14) -&gt; keep the nearer to price. If the new zone
+        // is the farther one, suppress it entirely (nothing is removed).
+        int dropClose = -1
+        for i = 0 to array.size(zLvl) - 1
+            if array.get(zSide, i) == _side and math.abs(array.get(zLvl, i) - _level) &lt;= atrVal
+                if math.abs(array.get(zLvl, i) - close) &lt; math.abs(_level - close)
+                    dropClose := -2  // the new one is farther: do not add it
+                else
+                    dropClose := i   // the old one is farther: drop it
+        if dropClose != -2
+            if dropClose &gt;= 0
+                removeZone(dropClose)
+            // capacity: drop the oldest UNTESTED same-side zone first
+            if zoneCount(_side) &gt;= maxZones
+                int drop = -1
+                int oldest = 1000000000
+                for i = 0 to array.size(zSide) - 1
+                    if array.get(zSide, i) == _side and array.get(zHits, i) == 0 and array.get(zBorn, i) &lt; oldest
+                        oldest := array.get(zBorn, i)
+                        drop := i
+                if drop == -1
+                    int oldestAny = 1000000000
+                    for i = 0 to array.size(zSide) - 1
+                        if array.get(zSide, i) == _side and array.get(zBorn, i) &lt; oldestAny
+                            oldestAny := array.get(zBorn, i)
+                            drop := i
+                if drop &gt;= 0
+                    removeZone(drop)
+            color bcol = _side == 1 ? resCol : supCol
+            color bbg = _side == 1 ? resBg : supBg
+            box nb = box.new(bar_index, top, bar_index + 1, bot, xloc=xloc.bar_index, extend=extend.right, border_color=bcol, bgcolor=bbg)
+            label nl = label.new(bar_index, _side == 1 ? top : bot, &quot;&quot;, xloc=xloc.bar_index, style=_side == 1 ? label.style_label_down : label.style_label_up, color=bbg, textcolor=color.white, size=size.small)
+            array.push(zTop, top)
+            array.push(zBot, bot)
+            array.push(zLvl, _level)
+            array.push(zSide, _side)
+            array.push(zState, ST_ACTIVE)
+            array.push(zTouches, 0.0)
+            array.push(zHits, 0)
+            array.push(zPierces, 0)
+            array.push(zBounces, 0)
+            array.push(zBorn, bar_index)
+            array.push(zVol, _vol)
+            array.push(zBox, nb)
+            array.push(zLab, nl)
+            array.push(zMark, na)
+            array.push(zHold, 0)
+            array.push(zRetestBar, na)
+            array.push(zFirst, 0)
+            array.push(zFlipped, false)
+            refreshLabel(array.size(zLvl) - 1)
+
+// ---------------- HTF zone update (latest zone per side per slot) ----------------
+htfUpdate(_slot, _ph, _pl, _atr, _tf) =&gt;
+    // resistance
+    if not na(_ph) and not na(_atr) and (na(array.get(hLastPh, _slot)) or array.get(hLastPh, _slot) != _ph)
+        array.set(hLastPh, _slot, _ph)
+        int idx = _slot * 2
+        float top = _ph + halfW * _atr
+        float bot = _ph - halfW * _atr
+        box ob = array.get(hBox, idx)
+        label ol = array.get(hLab, idx)
+        if not na(ob)
+            box.delete(ob)
+        if not na(ol)
+            label.delete(ol)
+        box nb = box.new(bar_index, top, bar_index + 1, bot, xloc=xloc.bar_index, extend=extend.right, border_color=htfCol, bgcolor=color.new(color.blue, 88))
+        label nl = label.new(bar_index, top, &quot;HTF &quot; + _tf + &quot; R &quot; + str.tostring(_ph, format.mintick), xloc=xloc.bar_index, style=label.style_label_down, color=color.new(color.blue, 88), textcolor=color.white, size=size.small)
+        array.set(hTop, idx, top)
+        array.set(hBot, idx, bot)
+        array.set(hLvl, idx, _ph)
+        array.set(hBox, idx, nb)
+        array.set(hLab, idx, nl)
+    // support
+    if not na(_pl) and not na(_atr) and (na(array.get(hLastPl, _slot)) or array.get(hLastPl, _slot) != _pl)
+        array.set(hLastPl, _slot, _pl)
+        int idx = _slot * 2 + 1
+        float top = _pl + halfW * _atr
+        float bot = _pl - halfW * _atr
+        box ob = array.get(hBox, idx)
+        label ol = array.get(hLab, idx)
+        if not na(ob)
+            box.delete(ob)
+        if not na(ol)
+            label.delete(ol)
+        box nb = box.new(bar_index, top, bar_index + 1, bot, xloc=xloc.bar_index, extend=extend.right, border_color=htfCol, bgcolor=color.new(color.blue, 88))
+        label nl = label.new(bar_index, bot, &quot;HTF &quot; + _tf + &quot; S &quot; + str.tostring(_pl, format.mintick), xloc=xloc.bar_index, style=label.style_label_up, color=color.new(color.blue, 88), textcolor=color.white, size=size.small)
+        array.set(hTop, idx, top)
+        array.set(hBot, idx, bot)
+        array.set(hLvl, idx, _pl)
+        array.set(hBox, idx, nb)
+        array.set(hLab, idx, nl)
+
+// ---------------- HTF data (pivot maths INSIDE the HTF context, lookahead OFF;
+// ATR indexed back to the HTF pivot bar, matching the chart-TF rule) ----------------
+[hp1, lp1, at1] = request.security(syminfo.tickerid, htf1, [ta.pivothigh(high, pivLen, pivLen), ta.pivotlow(low, pivLen, pivLen), ta.atr(atrLen)[pivLen]], lookahead=barmerge.lookahead_off)
+[hp2, lp2, at2] = request.security(syminfo.tickerid, htf2, [ta.pivothigh(high, pivLen, pivLen), ta.pivotlow(low, pivLen, pivLen), ta.atr(atrLen)[pivLen]], lookahead=barmerge.lookahead_off)
+[hp3, lp3, at3] = request.security(syminfo.tickerid, htf3, [ta.pivothigh(high, pivLen, pivLen), ta.pivotlow(low, pivLen, pivLen), ta.atr(atrLen)[pivLen]], lookahead=barmerge.lookahead_off)
+
+// ---------------- Main logic — CLOSED BARS ONLY (no repaint) ----------------
+if barstate.isconfirmed and not na(atrVal)
+    // HTF zones first (so confluence counts them)
+    if useHtf1
+        htfUpdate(0, hp1, lp1, at1, htf1)
+    if useHtf2
+        htfUpdate(1, hp2, lp2, at2, htf2)
+    if useHtf3
+        htfUpdate(2, hp3, lp3, at3, htf3)
+
+    // New chart-TF zones on confirmed pivots (volume at the PIVOT bar)
+    if not na(ph)
+        addZone(1, ph, nz(volume[pivLen], 0))
+    if not na(pl)
+        addZone(-1, pl, nz(volume[pivLen], 0))
+
+    // Zone state machines
+    for i = 0 to array.size(zLvl) - 1
+        int side = array.get(zSide, i)
+        int st = array.get(zState, i)
+        float top = array.get(zTop, i)
+        float bot = array.get(zBot, i)
+        bool overlaps = low &lt;= top and high &gt;= bot
+        bool hit = close &gt;= bot and close &lt;= top and not (close[1] &gt;= bot and close[1] &lt;= top)
+        bool pierce = overlaps and not (close &gt;= bot and close &lt;= top)
+        // far edge / near edge depend on side: resistance far = top, near = bot
+        float far = side == 1 ? top : bot
+        float near = side == 1 ? bot : top
+        bool bodyBreak = side == 1 ? close &gt; top : close &lt; bot
+        bool bodyBreakPrev = side == 1 ? close[1] &gt; top : close[1] &lt; bot
+        bool bodyBreakConf = bodyBreak and (breakConfirm == 1 or bodyBreakPrev)
+        bool closeOutsideNear = side == 1 ? close &lt; bot : close &gt; top
+
+        if st == ST_ACTIVE
+            if hit
+                // touch quality (BullByte): false break 1.2 / body 0.8 /
+                // consolidation 0.5. (Wick-rejection 1.0 lives on pierces,
+                // not hits: a hit means the close is INSIDE the band.)
+                float q = 0.8
+                if side == 1 and high &gt; top and close &lt;= top
+                    q := 1.2
+                else if side == -1 and low &lt; bot and close &gt;= bot
+                    q := 1.2
+                else if open &gt;= bot and open &lt;= top and close &gt;= bot and close &lt;= top
+                    q := 0.5
+                array.set(zTouches, i, array.get(zTouches, i) + q)
+                array.set(zHits, i, array.get(zHits, i) + 1)
+                array.set(zState, i, ST_TOUCHED)
+                array.set(zMark, i, bar_index)
+                if strengthOf(i) * 100 &gt;= strongThr
+                    evTouchStrong := true
+                refreshLabel(i)
+            else if pierce
+                array.set(zPierces, i, array.get(zPierces, i) + 1)
+                refreshLabel(i)
+            // break can also happen without a prior hit on this zone
+            if bodyBreakConf
+                if showEvents
+                    label.new(bar_index, side == 1 ? high : low, &quot;BREAK&quot;, style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+                evBreak := true
+                array.set(zState, i, ST_FLIPPED)
+                array.set(zMark, i, bar_index)
+                array.set(zSide, i, -side)
+                array.set(zFlipped, i, true)
+                array.set(zHits, i, 0)
+                if array.get(zFirst, i) == 0
+                    array.set(zFirst, i, 2)
+                box b = array.get(zBox, i)
+                box.set_border_color(b, flipCol)
+                box.set_bgcolor(b, flipBg)
+                refreshLabel(i)
+
+        else if st == ST_TOUCHED
+            int markBar = array.get(zMark, i)
+            if closeOutsideNear and bar_index - markBar &lt;= 3
+                // BOUNCE: close back outside within 3 bars
+                if showEvents
+                    label.new(bar_index, side == 1 ? top : bot, &quot;BOUNCE&quot;, style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
+                array.set(zBounces, i, array.get(zBounces, i) + 1)
+                if array.get(zFirst, i) == 0
+                    array.set(zFirst, i, 1)
+                array.set(zState, i, ST_ACTIVE)
+                array.set(zMark, i, na)
+                refreshLabel(i)
+            else if bodyBreakConf
+                if showEvents
+                    label.new(bar_index, side == 1 ? high : low, &quot;BREAK&quot;, style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+                evBreak := true
+                array.set(zState, i, ST_FLIPPED)
+                array.set(zMark, i, bar_index)
+                array.set(zSide, i, -side)
+                array.set(zFlipped, i, true)
+                array.set(zHits, i, 0)
+                if array.get(zFirst, i) == 0
+                    array.set(zFirst, i, 2)
+                box b = array.get(zBox, i)
+                box.set_border_color(b, flipCol)
+                box.set_bgcolor(b, flipBg)
+                refreshLabel(i)
+            else if bar_index - markBar &gt; 3
+                // touch went stale: no bounce, no break — zone stays active
+                array.set(zState, i, ST_ACTIVE)
+                array.set(zMark, i, na)
+
+        else if st == ST_FLIPPED
+            int markBar = array.get(zMark, i)
+            if bar_index - markBar &gt; 20
+                // break with no retest in 20 bars = violated
+                if showEvents
+                    label.new(bar_index, side == 1 ? top : bot, &quot;NO RETEST&quot;, style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.gray, 0), textcolor=color.white, size=size.small)
+                array.set(zState, i, ST_DONE_BAD)
+                box b = array.get(zBox, i)
+                box.set_border_color(b, deadCol)
+                box.set_bgcolor(b, deadBg)
+                refreshLabel(i)
+            else if overlaps
+                // retest: price returned into the flipped zone
+                if showEvents
+                    label.new(bar_index, side == 1 ? bot : top, &quot;RETEST&quot;, style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(color.orange, 0), textcolor=color.white, size=size.small)
+                array.set(zState, i, ST_RETEST)
+                array.set(zRetestBar, i, bar_index)
+                array.set(zHold, i, 0)
+
+        else if st == ST_RETEST
+            int rtBar = array.get(zRetestBar, i)
+            if bar_index &gt; rtBar
+                bool failed = side == 1 ? close &lt; bot : close &gt; top
+                if failed
+                    if showEvents
+                        label.new(bar_index, side == 1 ? high : low, &quot;RETEST FAILED&quot;, style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+                    array.set(zState, i, ST_DONE_BAD)
+                    box b = array.get(zBox, i)
+                    box.set_border_color(b, deadCol)
+                    box.set_bgcolor(b, deadBg)
+                    refreshLabel(i)
+                else
+                    array.set(zHold, i, array.get(zHold, i) + 1)
+                    if array.get(zHold, i) &gt;= 3
+                        if showEvents
+                            label.new(bar_index, side == 1 ? bot : top, &quot;HOLD ✓&quot;, style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
+                        evRetestHeld := true
+                        array.set(zState, i, ST_ACTIVE)
+                        array.set(zMark, i, na)
+                        refreshLabel(i)
+
+    // keep labels glued to the right edge
+    for i = 0 to array.size(zLab) - 1
+        label.set_xy(array.get(zLab, i), bar_index, array.get(zSide, i) == 1 ? array.get(zTop, i) : array.get(zBot, i))
+    for s = 0 to 5
+        label ol = array.get(hLab, s)
+        if not na(ol)
+            label.set_xy(ol, bar_index, s % 2 == 0 ? array.get(hTop, s) : array.get(hBot, s))
+
+// ---------------- Alerts (detector events, NOT entries) ----------------
+alertcondition(alertTouch and evTouchStrong, title=&quot;Strong zone touch&quot;, message=&quot;Strong S&amp;R zone touched on {{ticker}} {{interval}}. Price {{close}}.&quot;)
+alertcondition(alertBreak and evBreak, title=&quot;Zone break (body close)&quot;, message=&quot;S&amp;R zone broken by body close on {{ticker}} {{interval}}. Price {{close}}.&quot;)
+alertcondition(alertRetest and evRetestHeld, title=&quot;Retest held&quot;, message=&quot;Flipped S&amp;R zone retest held on {{ticker}} {{interval}}. Price {{close}}.&quot;)
+
+// ---------------- Info table ----------------
+var table info = table.new(position.top_right, 1, 4, border_width=1)
+if barstate.islast
+    int nRes = zoneCount(1)
+    int nSup = zoneCount(-1)
+    int nStrong = 0
+    for i = 0 to array.size(zLvl) - 1
+        if strengthOf(i) * 100 &gt;= strongThr
+            nStrong += 1
+    table.cell(info, 0, 0, &quot;Amandire SR Zones — pivot &quot; + str.tostring(pivLen) + &quot; · ±&quot; + str.tostring(halfW) + &quot; ATR&quot;, text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(info, 0, 1, &quot;Zones live: &quot; + str.tostring(nRes) + &quot; R / &quot; + str.tostring(nSup) + &quot; S · Strong (≥&quot; + str.tostring(strongThr) + &quot;): &quot; + str.tostring(nStrong), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(info, 0, 2, &quot;No repaint: confirmed pivots only, closed bars only.&quot;, text_color=color.new(color.white, 20), bgcolor=color.new(color.black, 20))
+    table.cell(info, 0, 3, &quot;Touch ≠ entry. Break = body close past far edge.&quot;, text_color=color.new(color.white, 20), bgcolor=color.new(color.black, 20))
+</pre>
+<script>
+const CODE = "//@version=5\n// ============================================================================\n// AMANDIRE S&R ZONE DETECTOR — v1.0 (28 Nov 2026)\n// A first-of-its-kind S&R zone detector built from Trader Noah's own measured\n// research (Mercury study, MTF Zones v2.0/v2.1, 65-page all-videos-and-bots\n// report) + published non-repainting methods.\n//\n// WHAT IT DOES\n//   * Draws support / resistance zones from CONFIRMED pivots only.\n//   * Counts touch EVENTS (close enters the zone) and wick PIERCES separately.\n//   * Scores every zone 0-100 (volume 40% / touches 30% / age 30%).\n//   * Labels touches, bounces, body-close breaks, flip (turncoat) zones,\n//     retests and holds. Flags weakening zones (>= 3 pierces).\n//   * Overlays higher-timeframe zones (15m / 1H / 4H) and scores confluence.\n//   * Alerts on: touch of a STRONG zone, body-close break, retest-held.\n//\n// HONEST EXPECTATIONS — READ THIS\n//   * NO indicator detects zones 100%. Published measurements + our own Mercury\n//     study put zone respect at roughly 40-75%, and random bands hold about as\n//     often as real zones. Respect is NOT a trading edge: Mercury's best\n//     indicator (72.57% respected) LOSES money on 1m on both BTC and gold.\n//   * A zone appears only after its pivot CONFIRMS (pivot-length bars late).\n//     That delay is confirmation lag, NOT repainting. Zero lag is impossible:\n//     any \"zone\" known earlier is a guess that can be redrawn.\n//   * A touch alone is NEVER an entry (Selam's rule: sweep + rejection + MSS\n//     required). This indicator marks zones; the entry rules sit on top.\n//\n// NON-REPAINTING CONTRACT\n//   1. Zones are born ONLY from ta.pivothigh / ta.pivotlow (confirmed pivots).\n//   2. Once drawn, a zone NEVER moves. Level/top/bottom are frozen at the\n//      confirmation bar (ATR frozen at the pivot bar).\n//   3. All event detection runs on CLOSED bars only (barstate.isconfirmed),\n//      so a live-bar label can never appear and vanish.\n//   4. HTF data via request.security(..., lookahead_off), maths computed\n//      INSIDE the HTF context. Never lookahead_on without an offset.\n//   5. A break counts ONLY on a candle BODY close past the zone's far edge.\n//      A wick through is a sweep/pierce — the zone stays alive.\n//   6. A broken zone is never silently erased: it flips role (turncoat),\n//      turns amber, and is watched for a retest. History is never rewritten.\n//   7. No barstate.islast price labelling or signals anywhere (that\n//      construction repaints). The info table is display-only current\n//      counts, not a signal.\n//\n// HOW TO USE\n//   Paste into the TradingView Pine Editor, \"Add to chart\". Default settings\n//   are the measured defaults (pivot 10, half-width 0.5 x ATR(14)).\n//   Strong zones (>= 70) are the most opaque. \"HTF\" badge = overlaps a\n//   higher-timeframe zone. \"CONF xN\" = confluence count (chart TF = 1,\n//   each HTF = 2). Weakening = 3+ wick pierces: trade the BREAK, not the bounce.\n// ============================================================================\n\nindicator(\"Amandire S&R Zone Detector\", shorttitle=\"Amandire SR Zones\", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)\n\n// ---------------- Inputs ----------------\ngrpZ  = \"Zones\"\ngrpH  = \"Higher timeframes (MTF)\"\ngrpD  = \"Display\"\ngrpA  = \"Alerts\"\n\npivLen     = input.int(10, \"Pivot length (left = right)\", minval=2, maxval=30, group=grpZ, tooltip=\"Zone is born only after this many bars confirm the pivot. Larger = stronger, fewer zones, later appearance. This delay is confirmation lag, NOT repainting.\")\natrLen     = input.int(14, \"ATR length\", minval=1, group=grpZ)\nhalfW      = input.float(0.5, \"Zone half-width (x ATR)\", minval=0.1, maxval=1.5, step=0.05, group=grpZ, tooltip=\"Zone = level +/- half-width x ATR(14), frozen at the pivot bar. Total width = 2 x this. Wider bands respect more often by construction — report the width with any respect rate.\")\nwidthMode  = input.string(\"Centred\", \"Width mode\", options=[\"Centred\", \"Inward\"], group=grpZ, tooltip=\"Centred: level +/- half-width x ATR. Inward (Selam-engine style): resistance = [high - fuzz, high], support = [low, low + fuzz], fuzz = ATR(7)/2 x 0.75.\")\nmaxZones   = input.int(8, \"Max zones per side\", minval=1, maxval=20, group=grpZ)\nmergeDist  = input.float(0.5, \"Merge distance (x ATR)\", minval=0.0, step=0.1, group=grpZ, tooltip=\"A new pivot within this distance of an existing same-side zone reinforces it (touch +1) instead of drawing a duplicate.\")\nbreakConfirm = input.int(1, \"Break confirmation closes (1 or 2)\", minval=1, maxval=2, group=grpZ, tooltip=\"1 = Selam's rule: one body close past the far edge breaks the zone. 2 = needs a 2nd consecutive close. Measured on gold 1m: false breaks fall from ~51% to ~41%, but ~26% of breaks never confirm.\")\nfuzzMult   = input.float(0.75, \"Inward fuzz (x ATR(7)/2)\", minval=0.1, step=0.05, group=grpZ)\n\nuseHtf1 = input.bool(true, \"Show HTF 1 zones\", group=grpH)\nhtf1    = input.timeframe(\"15\", \"HTF 1\", group=grpH)\nuseHtf2 = input.bool(true, \"Show HTF 2 zones\", group=grpH)\nhtf2    = input.timeframe(\"60\", \"HTF 2\", group=grpH)\nuseHtf3 = input.bool(true, \"Show HTF 3 zones\", group=grpH)\nhtf3    = input.timeframe(\"240\", \"HTF 3\", group=grpH)\n\nshowLabels = input.bool(true, \"Show zone labels\", group=grpD)\nshowEvents = input.bool(true, \"Show event labels (BOUNCE / BREAK / RETEST...)\", group=grpD)\nstrongThr  = input.int(70, \"Strong zone threshold (0-100)\", minval=1, maxval=100, group=grpD)\n\nalertTouch = input.bool(true, \"Alert: touch of a STRONG zone\", group=grpA)\nalertBreak = input.bool(true, \"Alert: body-close break of any zone\", group=grpA)\nalertRetest = input.bool(true, \"Alert: retest held\", group=grpA)\n\n// ---------------- Colours ----------------\nresCol  = color.new(color.red, 0)\nresBg   = color.new(color.red, 90)\nsupCol  = color.new(color.green, 0)\nsupBg   = color.new(color.green, 90)\nflipCol = color.new(color.orange, 0)\nflipBg  = color.new(color.orange, 88)\ndeadCol = color.new(color.gray, 0)\ndeadBg  = color.new(color.gray, 92)\nhtfCol  = color.new(color.blue, 0)\n\n// ---------------- State constants ----------------\nST_ACTIVE = 0   // live zone, waiting\nST_TOUCHED = 1  // hit within the last 3 bars, bounce/break pending\nST_FLIPPED = 2  // broken, role reversed, retest watch open (20 bars)\nST_RETEST = 3   // retest in progress, hold watch (3 bars)\nST_DONE_OK = 4  // respected (bounce or retest held) — zone stays live\nST_DONE_BAD = 5 // violated (retest failed / no retest) — greyed, kept visible\n\n// ---------------- Chart-TF zone storage (parallel arrays) ----------------\nvar array<float> zTop     = array.new_float()\nvar array<float> zBot     = array.new_float()\nvar array<float> zLvl     = array.new_float()\nvar array<int>   zSide    = array.new_int()    // 1 resistance, -1 support\nvar array<int>   zState   = array.new_int()\nvar array<float> zTouches = array.new_float()  // quality-weighted touches\nvar array<int>   zHits    = array.new_int()    // touch events (close entered)\nvar array<int>   zPierces = array.new_int()    // wick-only entries\nvar array<int>   zBounces = array.new_int()\nvar array<int>   zBorn    = array.new_int()    // bar_index of confirmation\nvar array<float> zVol     = array.new_float()  // volume at pivot bar\nvar array<box>   zBox     = array.new_box()\nvar array<label> zLab     = array.new_label()\nvar array<int>   zMark    = array.new_int()    // bar of last touch / break\nvar array<int>   zHold    = array.new_int()    // hold-bar counter\nvar array<int>   zRetestBar = array.new_int()\nvar array<int>   zFirst   = array.new_int()    // first outcome: 0 none, 1 bounce, 2 break\nvar array<bool>  zFlipped = array.new_bool()   // role already reversed once\n\n// ---------------- HTF zone storage: latest zone per side per slot (3 slots x 2 sides) ----------------\nvar array<float> hTop  = array.new_float(6, na)\nvar array<float> hBot  = array.new_float(6, na)\nvar array<float> hLvl  = array.new_float(6, na)\nvar array<box>   hBox  = array.new_box(6, na)\nvar array<label> hLab  = array.new_label(6, na)\nvar array<float> hLastPh = array.new_float(3, na)\nvar array<float> hLastPl = array.new_float(3, na)\n\n// ---------------- Series ----------------\natrVal  = ta.atr(atrLen)\natr7    = ta.atr(7)\nvolSMA  = ta.sma(volume, 50)\nph      = ta.pivothigh(high, pivLen, pivLen)\npl      = ta.pivotlow(low, pivLen, pivLen)\n\n// Event flags (reset every bar, set only on confirmed bars) — feed alertcondition\nvar bool evTouchStrong = false\nvar bool evBreak = false\nvar bool evRetestHeld = false\nevTouchStrong := false\nevBreak := false\nevRetestHeld := false\n\n// ---------------- Helpers ----------------\nzoneCount(_side) =>\n    int n = 0\n    for i = 0 to array.size(zSide) - 1\n        if array.get(zSide, i) == _side\n            n += 1\n    n\n\nstrengthOf(_i) =>\n    float volS = 0.5\n    float vAt = array.get(zVol, _i)\n    if not na(volSMA) and volSMA > 0 and vAt > 0\n        volS := math.min(vAt / volSMA, 3.0) / 3.0\n    float tS = math.min(array.get(zTouches, _i) / 5.0, 1.0)\n    float aS = math.max(1.0 - (bar_index - array.get(zBorn, _i)) / 500.0, 0.0)\n    0.40 * volS + 0.30 * tS + 0.30 * aS\n\nconfluenceOf(_i) =>\n    float top = array.get(zTop, _i)\n    float bot = array.get(zBot, _i)\n    int c = 1\n    for s = 0 to 5\n        float ht = array.get(hTop, s)\n        float hb = array.get(hBot, s)\n        if not na(ht) and not na(hb) and ht >= bot and hb <= top\n            c += 2\n    c\n\nlabelText(_i) =>\n    string side = array.get(zSide, _i) == 1 ? \"R\" : \"S\"\n    string lvl = str.tostring(array.get(zLvl, _i), format.mintick)\n    int str = math.round(strengthOf(_i) * 100)\n    int conf = confluenceOf(_i)\n    string weak = array.get(zPierces, _i) >= 3 ? \" WEAK\" : \"\"\n    string flip = array.get(zFlipped, _i) ? \" FLIP\" : \"\"\n    string htf = conf > 1 ? \" HTF\" : \"\"\n    side + \" \" + lvl + \" · T\" + str.tostring(array.get(zHits, _i)) + \" · P\" + str.tostring(array.get(zPierces, _i)) + \" · \" + str.tostring(str) + \"% · x\" + str.tostring(conf) + weak + flip + htf\n\nrefreshLabel(_i) =>\n    if showLabels\n        label l = array.get(zLab, _i)\n        int str = math.round(strengthOf(_i) * 100)\n        color bg = array.get(zSide, _i) == 1 ? resBg : supBg\n        if array.get(zState, _i) == ST_DONE_BAD\n            bg := deadBg\n        else if array.get(zFlipped, _i)\n            bg := flipBg\n        label.set_text(l, labelText(_i))\n        label.set_xy(l, bar_index, array.get(zSide, _i) == 1 ? array.get(zTop, _i) : array.get(zBot, _i))\n        label.set_color(l, bg)\n        label.set_textcolor(l, str >= strongThr ? color.white : color.new(color.white, 20))\n\nremoveZone(_i) =>\n    box b = array.get(zBox, _i)\n    label l = array.get(zLab, _i)\n    if not na(b)\n        box.delete(b)\n    if not na(l)\n        label.delete(l)\n    array.remove(zTop, _i)\n    array.remove(zBot, _i)\n    array.remove(zLvl, _i)\n    array.remove(zSide, _i)\n    array.remove(zState, _i)\n    array.remove(zTouches, _i)\n    array.remove(zHits, _i)\n    array.remove(zPierces, _i)\n    array.remove(zBounces, _i)\n    array.remove(zBorn, _i)\n    array.remove(zVol, _i)\n    array.remove(zBox, _i)\n    array.remove(zLab, _i)\n    array.remove(zMark, _i)\n    array.remove(zHold, _i)\n    array.remove(zRetestBar, _i)\n    array.remove(zFirst, _i)\n    array.remove(zFlipped, _i)\n\naddZone(_side, _level, _vol) =>\n    // width — ATR frozen at the PIVOT bar (atrVal[pivLen]), not the\n    // confirmation bar, so the zone never breathes after it is drawn\n    float top = na\n    float bot = na\n    if widthMode == \"Centred\"\n        top := _level + halfW * atrVal[pivLen]\n        bot := _level - halfW * atrVal[pivLen]\n    else\n        float fuzz = atr7[pivLen] / 2 * fuzzMult\n        if _side == 1\n            top := _level\n            bot := _level - fuzz\n        else\n            top := _level + fuzz\n            bot := _level\n    // merge: reinforce an existing same-side zone within mergeDist x ATR\n    bool merged = false\n    for i = 0 to array.size(zLvl) - 1\n        if not merged and array.get(zSide, i) == _side and math.abs(array.get(zLvl, i) - _level) <= mergeDist * atrVal\n            array.set(zTouches, i, array.get(zTouches, i) + 1.0)\n            array.set(zHits, i, array.get(zHits, i) + 1)\n            merged := true\n            refreshLabel(i)\n    if not merged\n        // too-close filter FIRST (WFRX / Zone Bell rule): same-side zones\n        // within 1 x ATR(14) -> keep the nearer to price. If the new zone\n        // is the farther one, suppress it entirely (nothing is removed).\n        int dropClose = -1\n        for i = 0 to array.size(zLvl) - 1\n            if array.get(zSide, i) == _side and math.abs(array.get(zLvl, i) - _level) <= atrVal\n                if math.abs(array.get(zLvl, i) - close) < math.abs(_level - close)\n                    dropClose := -2  // the new one is farther: do not add it\n                else\n                    dropClose := i   // the old one is farther: drop it\n        if dropClose != -2\n            if dropClose >= 0\n                removeZone(dropClose)\n            // capacity: drop the oldest UNTESTED same-side zone first\n            if zoneCount(_side) >= maxZones\n                int drop = -1\n                int oldest = 1000000000\n                for i = 0 to array.size(zSide) - 1\n                    if array.get(zSide, i) == _side and array.get(zHits, i) == 0 and array.get(zBorn, i) < oldest\n                        oldest := array.get(zBorn, i)\n                        drop := i\n                if drop == -1\n                    int oldestAny = 1000000000\n                    for i = 0 to array.size(zSide) - 1\n                        if array.get(zSide, i) == _side and array.get(zBorn, i) < oldestAny\n                            oldestAny := array.get(zBorn, i)\n                            drop := i\n                if drop >= 0\n                    removeZone(drop)\n            color bcol = _side == 1 ? resCol : supCol\n            color bbg = _side == 1 ? resBg : supBg\n            box nb = box.new(bar_index, top, bar_index + 1, bot, xloc=xloc.bar_index, extend=extend.right, border_color=bcol, bgcolor=bbg)\n            label nl = label.new(bar_index, _side == 1 ? top : bot, \"\", xloc=xloc.bar_index, style=_side == 1 ? label.style_label_down : label.style_label_up, color=bbg, textcolor=color.white, size=size.small)\n            array.push(zTop, top)\n            array.push(zBot, bot)\n            array.push(zLvl, _level)\n            array.push(zSide, _side)\n            array.push(zState, ST_ACTIVE)\n            array.push(zTouches, 0.0)\n            array.push(zHits, 0)\n            array.push(zPierces, 0)\n            array.push(zBounces, 0)\n            array.push(zBorn, bar_index)\n            array.push(zVol, _vol)\n            array.push(zBox, nb)\n            array.push(zLab, nl)\n            array.push(zMark, na)\n            array.push(zHold, 0)\n            array.push(zRetestBar, na)\n            array.push(zFirst, 0)\n            array.push(zFlipped, false)\n            refreshLabel(array.size(zLvl) - 1)\n\n// ---------------- HTF zone update (latest zone per side per slot) ----------------\nhtfUpdate(_slot, _ph, _pl, _atr, _tf) =>\n    // resistance\n    if not na(_ph) and not na(_atr) and (na(array.get(hLastPh, _slot)) or array.get(hLastPh, _slot) != _ph)\n        array.set(hLastPh, _slot, _ph)\n        int idx = _slot * 2\n        float top = _ph + halfW * _atr\n        float bot = _ph - halfW * _atr\n        box ob = array.get(hBox, idx)\n        label ol = array.get(hLab, idx)\n        if not na(ob)\n            box.delete(ob)\n        if not na(ol)\n            label.delete(ol)\n        box nb = box.new(bar_index, top, bar_index + 1, bot, xloc=xloc.bar_index, extend=extend.right, border_color=htfCol, bgcolor=color.new(color.blue, 88))\n        label nl = label.new(bar_index, top, \"HTF \" + _tf + \" R \" + str.tostring(_ph, format.mintick), xloc=xloc.bar_index, style=label.style_label_down, color=color.new(color.blue, 88), textcolor=color.white, size=size.small)\n        array.set(hTop, idx, top)\n        array.set(hBot, idx, bot)\n        array.set(hLvl, idx, _ph)\n        array.set(hBox, idx, nb)\n        array.set(hLab, idx, nl)\n    // support\n    if not na(_pl) and not na(_atr) and (na(array.get(hLastPl, _slot)) or array.get(hLastPl, _slot) != _pl)\n        array.set(hLastPl, _slot, _pl)\n        int idx = _slot * 2 + 1\n        float top = _pl + halfW * _atr\n        float bot = _pl - halfW * _atr\n        box ob = array.get(hBox, idx)\n        label ol = array.get(hLab, idx)\n        if not na(ob)\n            box.delete(ob)\n        if not na(ol)\n            label.delete(ol)\n        box nb = box.new(bar_index, top, bar_index + 1, bot, xloc=xloc.bar_index, extend=extend.right, border_color=htfCol, bgcolor=color.new(color.blue, 88))\n        label nl = label.new(bar_index, bot, \"HTF \" + _tf + \" S \" + str.tostring(_pl, format.mintick), xloc=xloc.bar_index, style=label.style_label_up, color=color.new(color.blue, 88), textcolor=color.white, size=size.small)\n        array.set(hTop, idx, top)\n        array.set(hBot, idx, bot)\n        array.set(hLvl, idx, _pl)\n        array.set(hBox, idx, nb)\n        array.set(hLab, idx, nl)\n\n// ---------------- HTF data (pivot maths INSIDE the HTF context, lookahead OFF;\n// ATR indexed back to the HTF pivot bar, matching the chart-TF rule) ----------------\n[hp1, lp1, at1] = request.security(syminfo.tickerid, htf1, [ta.pivothigh(high, pivLen, pivLen), ta.pivotlow(low, pivLen, pivLen), ta.atr(atrLen)[pivLen]], lookahead=barmerge.lookahead_off)\n[hp2, lp2, at2] = request.security(syminfo.tickerid, htf2, [ta.pivothigh(high, pivLen, pivLen), ta.pivotlow(low, pivLen, pivLen), ta.atr(atrLen)[pivLen]], lookahead=barmerge.lookahead_off)\n[hp3, lp3, at3] = request.security(syminfo.tickerid, htf3, [ta.pivothigh(high, pivLen, pivLen), ta.pivotlow(low, pivLen, pivLen), ta.atr(atrLen)[pivLen]], lookahead=barmerge.lookahead_off)\n\n// ---------------- Main logic — CLOSED BARS ONLY (no repaint) ----------------\nif barstate.isconfirmed and not na(atrVal)\n    // HTF zones first (so confluence counts them)\n    if useHtf1\n        htfUpdate(0, hp1, lp1, at1, htf1)\n    if useHtf2\n        htfUpdate(1, hp2, lp2, at2, htf2)\n    if useHtf3\n        htfUpdate(2, hp3, lp3, at3, htf3)\n\n    // New chart-TF zones on confirmed pivots (volume at the PIVOT bar)\n    if not na(ph)\n        addZone(1, ph, nz(volume[pivLen], 0))\n    if not na(pl)\n        addZone(-1, pl, nz(volume[pivLen], 0))\n\n    // Zone state machines\n    for i = 0 to array.size(zLvl) - 1\n        int side = array.get(zSide, i)\n        int st = array.get(zState, i)\n        float top = array.get(zTop, i)\n        float bot = array.get(zBot, i)\n        bool overlaps = low <= top and high >= bot\n        bool hit = close >= bot and close <= top and not (close[1] >= bot and close[1] <= top)\n        bool pierce = overlaps and not (close >= bot and close <= top)\n        // far edge / near edge depend on side: resistance far = top, near = bot\n        float far = side == 1 ? top : bot\n        float near = side == 1 ? bot : top\n        bool bodyBreak = side == 1 ? close > top : close < bot\n        bool bodyBreakPrev = side == 1 ? close[1] > top : close[1] < bot\n        bool bodyBreakConf = bodyBreak and (breakConfirm == 1 or bodyBreakPrev)\n        bool closeOutsideNear = side == 1 ? close < bot : close > top\n\n        if st == ST_ACTIVE\n            if hit\n                // touch quality (BullByte): false break 1.2 / body 0.8 /\n                // consolidation 0.5. (Wick-rejection 1.0 lives on pierces,\n                // not hits: a hit means the close is INSIDE the band.)\n                float q = 0.8\n                if side == 1 and high > top and close <= top\n                    q := 1.2\n                else if side == -1 and low < bot and close >= bot\n                    q := 1.2\n                else if open >= bot and open <= top and close >= bot and close <= top\n                    q := 0.5\n                array.set(zTouches, i, array.get(zTouches, i) + q)\n                array.set(zHits, i, array.get(zHits, i) + 1)\n                array.set(zState, i, ST_TOUCHED)\n                array.set(zMark, i, bar_index)\n                if strengthOf(i) * 100 >= strongThr\n                    evTouchStrong := true\n                refreshLabel(i)\n            else if pierce\n                array.set(zPierces, i, array.get(zPierces, i) + 1)\n                refreshLabel(i)\n            // break can also happen without a prior hit on this zone\n            if bodyBreakConf\n                if showEvents\n                    label.new(bar_index, side == 1 ? high : low, \"BREAK\", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)\n                evBreak := true\n                array.set(zState, i, ST_FLIPPED)\n                array.set(zMark, i, bar_index)\n                array.set(zSide, i, -side)\n                array.set(zFlipped, i, true)\n                array.set(zHits, i, 0)\n                if array.get(zFirst, i) == 0\n                    array.set(zFirst, i, 2)\n                box b = array.get(zBox, i)\n                box.set_border_color(b, flipCol)\n                box.set_bgcolor(b, flipBg)\n                refreshLabel(i)\n\n        else if st == ST_TOUCHED\n            int markBar = array.get(zMark, i)\n            if closeOutsideNear and bar_index - markBar <= 3\n                // BOUNCE: close back outside within 3 bars\n                if showEvents\n                    label.new(bar_index, side == 1 ? top : bot, \"BOUNCE\", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.small)\n                array.set(zBounces, i, array.get(zBounces, i) + 1)\n                if array.get(zFirst, i) == 0\n                    array.set(zFirst, i, 1)\n                array.set(zState, i, ST_ACTIVE)\n                array.set(zMark, i, na)\n                refreshLabel(i)\n            else if bodyBreakConf\n                if showEvents\n                    label.new(bar_index, side == 1 ? high : low, \"BREAK\", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)\n                evBreak := true\n                array.set(zState, i, ST_FLIPPED)\n                array.set(zMark, i, bar_index)\n                array.set(zSide, i, -side)\n                array.set(zFlipped, i, true)\n                array.set(zHits, i, 0)\n                if array.get(zFirst, i) == 0\n                    array.set(zFirst, i, 2)\n                box b = array.get(zBox, i)\n                box.set_border_color(b, flipCol)\n                box.set_bgcolor(b, flipBg)\n                refreshLabel(i)\n            else if bar_index - markBar > 3\n                // touch went stale: no bounce, no break — zone stays active\n                array.set(zState, i, ST_ACTIVE)\n                array.set(zMark, i, na)\n\n        else if st == ST_FLIPPED\n            int markBar = array.get(zMark, i)\n            if bar_index - markBar > 20\n                // break with no retest in 20 bars = violated\n                if showEvents\n                    label.new(bar_index, side == 1 ? top : bot, \"NO RETEST\", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.gray, 0), textcolor=color.white, size=size.small)\n                array.set(zState, i, ST_DONE_BAD)\n                box b = array.get(zBox, i)\n                box.set_border_color(b, deadCol)\n                box.set_bgcolor(b, deadBg)\n                refreshLabel(i)\n            else if overlaps\n                // retest: price returned into the flipped zone\n                if showEvents\n                    label.new(bar_index, side == 1 ? bot : top, \"RETEST\", style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(color.orange, 0), textcolor=color.white, size=size.small)\n                array.set(zState, i, ST_RETEST)\n                array.set(zRetestBar, i, bar_index)\n                array.set(zHold, i, 0)\n\n        else if st == ST_RETEST\n            int rtBar = array.get(zRetestBar, i)\n            if bar_index > rtBar\n                bool failed = side == 1 ? close < bot : close > top\n                if failed\n                    if showEvents\n                        label.new(bar_index, side == 1 ? high : low, \"RETEST FAILED\", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)\n                    array.set(zState, i, ST_DONE_BAD)\n                    box b = array.get(zBox, i)\n                    box.set_border_color(b, deadCol)\n                    box.set_bgcolor(b, deadBg)\n                    refreshLabel(i)\n                else\n                    array.set(zHold, i, array.get(zHold, i) + 1)\n                    if array.get(zHold, i) >= 3\n                        if showEvents\n                            label.new(bar_index, side == 1 ? bot : top, \"HOLD ✓\", style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(color.green, 0), textcolor=color.white, size=size.small)\n                        evRetestHeld := true\n                        array.set(zState, i, ST_ACTIVE)\n                        array.set(zMark, i, na)\n                        refreshLabel(i)\n\n    // keep labels glued to the right edge\n    for i = 0 to array.size(zLab) - 1\n        label.set_xy(array.get(zLab, i), bar_index, array.get(zSide, i) == 1 ? array.get(zTop, i) : array.get(zBot, i))\n    for s = 0 to 5\n        label ol = array.get(hLab, s)\n        if not na(ol)\n            label.set_xy(ol, bar_index, s % 2 == 0 ? array.get(hTop, s) : array.get(hBot, s))\n\n// ---------------- Alerts (detector events, NOT entries) ----------------\nalertcondition(alertTouch and evTouchStrong, title=\"Strong zone touch\", message=\"Strong S&R zone touched on {{ticker}} {{interval}}. Price {{close}}.\")\nalertcondition(alertBreak and evBreak, title=\"Zone break (body close)\", message=\"S&R zone broken by body close on {{ticker}} {{interval}}. Price {{close}}.\")\nalertcondition(alertRetest and evRetestHeld, title=\"Retest held\", message=\"Flipped S&R zone retest held on {{ticker}} {{interval}}. Price {{close}}.\")\n\n// ---------------- Info table ----------------\nvar table info = table.new(position.top_right, 1, 4, border_width=1)\nif barstate.islast\n    int nRes = zoneCount(1)\n    int nSup = zoneCount(-1)\n    int nStrong = 0\n    for i = 0 to array.size(zLvl) - 1\n        if strengthOf(i) * 100 >= strongThr\n            nStrong += 1\n    table.cell(info, 0, 0, \"Amandire SR Zones — pivot \" + str.tostring(pivLen) + \" · ±\" + str.tostring(halfW) + \" ATR\", text_color=color.white, bgcolor=color.new(color.black, 20))\n    table.cell(info, 0, 1, \"Zones live: \" + str.tostring(nRes) + \" R / \" + str.tostring(nSup) + \" S · Strong (≥\" + str.tostring(strongThr) + \"): \" + str.tostring(nStrong), text_color=color.white, bgcolor=color.new(color.black, 20))\n    table.cell(info, 0, 2, \"No repaint: confirmed pivots only, closed bars only.\", text_color=color.new(color.white, 20), bgcolor=color.new(color.black, 20))\n    table.cell(info, 0, 3, \"Touch ≠ entry. Break = body close past far edge.\", text_color=color.new(color.white, 20), bgcolor=color.new(color.black, 20))\n";
+const btn = document.getElementById('copyBtn');
+const status = document.getElementById('status');
+document.getElementById('code').textContent = CODE;
+async function copyCode() {
+  try {
+    await navigator.clipboard.writeText(CODE);
+    status.textContent = '✓ ተቀድቷል — አሁን Pine Editor ውስጥ ለጥፍ';
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = CODE;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); status.textContent = '✓ ተቀድቷል — አሁን Pine Editor ውስጥ ለጥፍ'; }
+    catch (e2) { status.textContent = 'ኮፒ አልተሳካም — ጽሑፉን እራስህ ምረጥና ቅዳ'; }
+    document.body.removeChild(ta);
+  }
+}
+btn.addEventListener('click', copyCode);
+</script>
+</body>
+</html>
