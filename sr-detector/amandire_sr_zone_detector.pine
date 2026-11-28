@@ -1,17 +1,17 @@
 //@version=5
 // ============================================================================
-// AMANDIRE S&R ZONE DETECTOR — v1.5 (hardened)
-// v1.5: HTF requests are only made for timeframes HIGHER than the chart;
-//       otherwise the chart timeframe is requested (avoids lower-TF request errors).
-// Changes vs v1.3:
-//   * Local variable `nz` in addZone renamed (it shadowed the built-in nz()).
-//   * Zones are not created while ATR is still na (first bars of the chart).
-//   * Hidden zones / "Show zone labels" OFF now hide the label completely
-//     (before, an empty coloured label pointer could still show).
-//   * Unused constant removed.
-// Kept from v1.3: colour settings, MTF-only view, per-timeframe checkboxes,
-// minimum confluence, all v1.1 fixes (guarded for-loops, `sc` instead of `str`,
-// int(na), HTF-higher-than-chart check, too-close filter).
+// AMANDIRE S&R ZONE DETECTOR — v1.6 (LIGHT — fixes "exceeded your plan's time limit")
+// TradingView message: "Your script exceeded your plan's time limit for making
+// calculations." v1.6 makes the script much cheaper to run:
+//   * Only the last N bars are processed (new input "Bars to calculate", default 1500).
+//   * Label text, label position and label colours are updated ONLY on the last
+//     bar (display work), not on every historical bar.
+//   * Visibility (MTF-only) is re-checked only when an HTF zone actually changes.
+//   * Per-zone visibility is computed only when an event fires, not every bar.
+// Same logic as v1.5: confirmed pivots only, closed bars only, body-close breaks,
+// flip zones, retest watch, scoring, MTF confluence, colour settings, alerts.
+// If it is STILL too slow: lower "Bars to calculate" (e.g. 800) or switch off
+// HTF 3 / HTF 2 in the "Higher timeframes" group.
 //
 // NON-REPAINTING CONTRACT (unchanged)
 //   * Zones are born only from confirmed pivots; frozen once drawn.
@@ -37,6 +37,7 @@ maxZones   = input.int(8, "Max zones per side", minval=1, maxval=20, group=grpZ)
 mergeDist  = input.float(0.5, "Merge distance (x ATR)", minval=0.0, step=0.1, group=grpZ, tooltip="A new pivot within this distance of an existing same-side zone reinforces it instead of drawing a duplicate.")
 breakConfirm = input.int(1, "Break confirmation closes (1 or 2)", minval=1, maxval=2, group=grpZ, tooltip="1 = one body close past the far edge breaks the zone. 2 = needs a 2nd consecutive close.")
 fuzzMult   = input.float(0.75, "Inward fuzz (x ATR(7)/2)", minval=0.1, step=0.05, group=grpZ)
+calcBars   = input.int(1500, "Bars to calculate (lower = faster)", minval=200, maxval=20000, group=grpZ, tooltip="Only the last N bars are processed. Lower this if TradingView says the script exceeded the time limit.")
 
 useHtf1 = input.bool(true, "Show HTF 1 zones", group=grpH)
 htf1    = input.timeframe("15", "HTF 1", group=grpH)
@@ -123,6 +124,7 @@ volSMA  = ta.sma(volume, 50)
 ph      = ta.pivothigh(high, pivLen, pivLen)
 pl      = ta.pivotlow(low, pivLen, pivLen)
 atrOk   = not na(atrVal[pivLen]) and not na(atr7[pivLen])
+inRange = bar_index >= last_bar_index - calcBars
 
 // Event flags (reset every bar) — feed alertcondition
 var bool evTouchStrong = false
@@ -176,10 +178,9 @@ labelText(_i) =>
     string htfTxt = conf > 1 ? " HTF" : ""
     side + " " + lvl + " · T" + str.tostring(array.get(zHits, _i)) + " · P" + str.tostring(array.get(zPierces, _i)) + " · " + str.tostring(sc) + "% · x" + str.tostring(conf) + weak + flip + htfTxt
 
-refreshLabel(_i) =>
+// Box colours only (cheap). Label look/text/position is done once, on the last bar.
+refreshBox(_i) =>
     box b = array.get(zBox, _i)
-    label l = array.get(zLab, _i)
-    int sc = math.round(strengthOf(_i) * 100)
     bool vis = zoneVisible(_i)
     color bg = array.get(zSide, _i) == 1 ? resBg : supBg
     color bcol = array.get(zSide, _i) == 1 ? resCol : supCol
@@ -195,7 +196,18 @@ refreshLabel(_i) =>
     else
         box.set_border_color(b, clearC)
         box.set_bgcolor(b, clearC)
+
+// Label look + text + position — called only on the last bar.
+drawLabel(_i) =>
+    label l = array.get(zLab, _i)
+    bool vis = zoneVisible(_i)
     if vis and showLabels
+        int sc = math.round(strengthOf(_i) * 100)
+        color bg = array.get(zSide, _i) == 1 ? resBg : supBg
+        if array.get(zState, _i) == ST_DONE_BAD
+            bg := deadBg
+        else if array.get(zFlipped, _i)
+            bg := flipBg
         label.set_text(l, labelText(_i))
         label.set_xy(l, bar_index, array.get(zSide, _i) == 1 ? array.get(zTop, _i) : array.get(zBot, _i))
         label.set_color(l, bg)
@@ -204,6 +216,22 @@ refreshLabel(_i) =>
         label.set_text(l, "")
         label.set_color(l, clearC)
         label.set_textcolor(l, clearC)
+
+// One event label on the chart (only if events are shown and the zone is visible)
+addEvent(_i, _txt, _y, _above, _col) =>
+    if showEvents and zoneVisible(_i)
+        label.new(bar_index, _y, _txt, style=_above ? label.style_label_down : label.style_label_up, color=_col, textcolor=color.white, size=size.small)
+
+// Break: zone flips role (turncoat) and the retest watch opens
+flipZone(_i, _side) =>
+    array.set(zState, _i, ST_FLIPPED)
+    array.set(zMark, _i, bar_index)
+    array.set(zSide, _i, -_side)
+    array.set(zFlipped, _i, true)
+    array.set(zHits, _i, 0)
+    if array.get(zFirst, _i) == 0
+        array.set(zFirst, _i, 2)
+    refreshBox(_i)
 
 removeZone(_i) =>
     box b = array.get(zBox, _i)
@@ -255,7 +283,6 @@ addZone(_side, _level, _vol) =>
                 array.set(zTouches, i, array.get(zTouches, i) + 1.0)
                 array.set(zHits, i, array.get(zHits, i) + 1)
                 merged := true
-                refreshLabel(i)
     if not merged
         // too-close filter: same-side zones within 1 x ATR -> keep the nearer to price
         int dropClose = -1
@@ -292,7 +319,7 @@ addZone(_side, _level, _vol) =>
             color bcol = _side == 1 ? resCol : supCol
             color bbg = _side == 1 ? resBg : supBg
             box nb = box.new(bar_index, top, bar_index + 1, bot, xloc=xloc.bar_index, extend=extend.right, border_color=bcol, bgcolor=bbg)
-            label nl = label.new(bar_index, _side == 1 ? top : bot, "", xloc=xloc.bar_index, style=_side == 1 ? label.style_label_down : label.style_label_up, color=bbg, textcolor=labTextIn, size=size.small)
+            label nl = label.new(bar_index, _side == 1 ? top : bot, "", xloc=xloc.bar_index, style=_side == 1 ? label.style_label_down : label.style_label_up, color=clearC, textcolor=clearC, size=size.small)
             array.push(zTop, top)
             array.push(zBot, bot)
             array.push(zLvl, _level)
@@ -311,12 +338,15 @@ addZone(_side, _level, _vol) =>
             array.push(zRetestBar, int(na))
             array.push(zFirst, 0)
             array.push(zFlipped, false)
-            refreshLabel(array.size(zLvl) - 1)
+            refreshBox(array.size(zLvl) - 1)
 
 // ---------------- HTF zone update (latest zone per side per slot) ----------------
+// Returns true when an HTF zone was created / replaced (so visibility must be re-checked).
 htfUpdate(_slot, _ph, _pl, _atr, _tf) =>
+    bool ch = false
     // resistance
     if not na(_ph) and not na(_atr) and (na(array.get(hLastPh, _slot)) or array.get(hLastPh, _slot) != _ph)
+        ch := true
         array.set(hLastPh, _slot, _ph)
         int idxR = _slot * 2
         float topR = _ph + halfW * _atr
@@ -335,6 +365,7 @@ htfUpdate(_slot, _ph, _pl, _atr, _tf) =>
         array.set(hLab, idxR, nlR)
     // support
     if not na(_pl) and not na(_atr) and (na(array.get(hLastPl, _slot)) or array.get(hLastPl, _slot) != _pl)
+        ch := true
         array.set(hLastPl, _slot, _pl)
         int idxS = _slot * 2 + 1
         float topS = _pl + halfW * _atr
@@ -351,6 +382,7 @@ htfUpdate(_slot, _ph, _pl, _atr, _tf) =>
         array.set(hBot, idxS, botS)
         array.set(hBox, idxS, nbS)
         array.set(hLab, idxS, nlS)
+    ch
 
 // ---------------- HTF data (maths INSIDE the HTF context, lookahead OFF) ----------------
 chartSec = timeframe.in_seconds()
@@ -363,21 +395,25 @@ ok3 = useHtf3 and timeframe.in_seconds(htf3) > chartSec
 [hp3, lp3, at3] = request.security(syminfo.tickerid, ok3 ? htf3 : timeframe.period, [ta.pivothigh(high, pivLen, pivLen), ta.pivotlow(low, pivLen, pivLen), ta.atr(atrLen)[pivLen]], lookahead=barmerge.lookahead_off)
 
 // ---------------- Main logic — CLOSED BARS ONLY (no repaint) ----------------
-if barstate.isconfirmed and not na(atrVal)
+if barstate.isconfirmed and inRange and not na(atrVal)
     // HTF zones first (so confluence counts them)
+    bool htfCh = false
     if ok1
-        htfUpdate(0, hp1, lp1, at1, htf1)
+        bool c1 = htfUpdate(0, hp1, lp1, at1, htf1)
+        htfCh := htfCh or c1
     if ok2
-        htfUpdate(1, hp2, lp2, at2, htf2)
+        bool c2 = htfUpdate(1, hp2, lp2, at2, htf2)
+        htfCh := htfCh or c2
     if ok3
-        htfUpdate(2, hp3, lp3, at3, htf3)
+        bool c3 = htfUpdate(2, hp3, lp3, at3, htf3)
+        htfCh := htfCh or c3
 
-    // HTF zones moved: re-evaluate which chart zones the MTF-only view shows
-    if mtfOnly
+    // HTF zones changed: re-evaluate which chart zones the MTF-only view shows
+    if mtfOnly and htfCh
         int nz0 = array.size(zLvl)
         if nz0 > 0
             for i = 0 to nz0 - 1
-                refreshLabel(i)
+                refreshBox(i)
 
     // New chart-TF zones on confirmed pivots (volume at the PIVOT bar)
     if not na(ph) and atrOk
@@ -400,7 +436,6 @@ if barstate.isconfirmed and not na(atrVal)
             bool bodyBreakPrev = side == 1 ? close[1] > top : close[1] < bot
             bool bodyBreakConf = bodyBreak and (breakConfirm == 1 or bodyBreakPrev)
             bool closeOutsideNear = side == 1 ? close < bot : close > top
-            bool vis = zoneVisible(i)
 
             if st == ST_ACTIVE
                 if hit
@@ -416,52 +451,33 @@ if barstate.isconfirmed and not na(atrVal)
                     array.set(zHits, i, array.get(zHits, i) + 1)
                     array.set(zState, i, ST_TOUCHED)
                     array.set(zMark, i, bar_index)
-                    if strengthOf(i) * 100 >= strongThr and vis
-                        evTouchStrong := true
-                    refreshLabel(i)
+                    if strengthOf(i) * 100 >= strongThr
+                        if zoneVisible(i)
+                            evTouchStrong := true
                 else if pierce
                     array.set(zPierces, i, array.get(zPierces, i) + 1)
-                    refreshLabel(i)
                 // break can also happen without a prior hit on this zone
                 if bodyBreakConf
-                    if showEvents and vis
-                        label.new(bar_index, side == 1 ? high : low, "BREAK", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
-                    if vis
+                    addEvent(i, "BREAK", side == 1 ? high : low, side == 1, color.new(color.red, 0))
+                    if zoneVisible(i)
                         evBreak := true
-                    array.set(zState, i, ST_FLIPPED)
-                    array.set(zMark, i, bar_index)
-                    array.set(zSide, i, -side)
-                    array.set(zFlipped, i, true)
-                    array.set(zHits, i, 0)
-                    if array.get(zFirst, i) == 0
-                        array.set(zFirst, i, 2)
-                    refreshLabel(i)
+                    flipZone(i, side)
 
             else if st == ST_TOUCHED
                 int markBar = nz(array.get(zMark, i), bar_index)
                 if closeOutsideNear and bar_index - markBar <= 3
                     // BOUNCE: close back outside within 3 bars
-                    if showEvents and vis
-                        label.new(bar_index, side == 1 ? top : bot, "BOUNCE", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
+                    addEvent(i, "BOUNCE", side == 1 ? top : bot, side == 1, color.new(color.green, 0))
                     array.set(zBounces, i, array.get(zBounces, i) + 1)
                     if array.get(zFirst, i) == 0
                         array.set(zFirst, i, 1)
                     array.set(zState, i, ST_ACTIVE)
                     array.set(zMark, i, int(na))
-                    refreshLabel(i)
                 else if bodyBreakConf
-                    if showEvents and vis
-                        label.new(bar_index, side == 1 ? high : low, "BREAK", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
-                    if vis
+                    addEvent(i, "BREAK", side == 1 ? high : low, side == 1, color.new(color.red, 0))
+                    if zoneVisible(i)
                         evBreak := true
-                    array.set(zState, i, ST_FLIPPED)
-                    array.set(zMark, i, bar_index)
-                    array.set(zSide, i, -side)
-                    array.set(zFlipped, i, true)
-                    array.set(zHits, i, 0)
-                    if array.get(zFirst, i) == 0
-                        array.set(zFirst, i, 2)
-                    refreshLabel(i)
+                    flipZone(i, side)
                 else if bar_index - markBar > 3
                     // touch went stale: zone stays active
                     array.set(zState, i, ST_ACTIVE)
@@ -471,14 +487,12 @@ if barstate.isconfirmed and not na(atrVal)
                 int markBar2 = nz(array.get(zMark, i), bar_index)
                 if bar_index - markBar2 > 20
                     // break with no retest in 20 bars = violated
-                    if showEvents and vis
-                        label.new(bar_index, side == 1 ? top : bot, "NO RETEST", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.gray, 0), textcolor=color.white, size=size.small)
+                    addEvent(i, "NO RETEST", side == 1 ? top : bot, side == 1, color.new(color.gray, 0))
                     array.set(zState, i, ST_DONE_BAD)
-                    refreshLabel(i)
+                    refreshBox(i)
                 else if overlaps and bar_index > markBar2
                     // retest: price returned into the flipped zone
-                    if showEvents and vis
-                        label.new(bar_index, side == 1 ? bot : top, "RETEST", style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(color.orange, 0), textcolor=color.white, size=size.small)
+                    addEvent(i, "RETEST", side == 1 ? bot : top, side == -1, color.new(color.orange, 0))
                     array.set(zState, i, ST_RETEST)
                     array.set(zRetestBar, i, bar_index)
                     array.set(zHold, i, 0)
@@ -488,26 +502,24 @@ if barstate.isconfirmed and not na(atrVal)
                 if bar_index > rtBar
                     bool failed = side == 1 ? close < bot : close > top
                     if failed
-                        if showEvents and vis
-                            label.new(bar_index, side == 1 ? high : low, "RETEST FAILED", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+                        addEvent(i, "RETEST FAILED", side == 1 ? high : low, side == 1, color.new(color.red, 0))
                         array.set(zState, i, ST_DONE_BAD)
-                        refreshLabel(i)
+                        refreshBox(i)
                     else
                         array.set(zHold, i, array.get(zHold, i) + 1)
                         if array.get(zHold, i) >= 3
-                            if showEvents and vis
-                                label.new(bar_index, side == 1 ? bot : top, "HOLD ✓", style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
-                            if vis
+                            addEvent(i, "HOLD ✓", side == 1 ? bot : top, side == -1, color.new(color.green, 0))
+                            if zoneVisible(i)
                                 evRetestHeld := true
                             array.set(zState, i, ST_ACTIVE)
                             array.set(zMark, i, int(na))
-                            refreshLabel(i)
 
-    // keep labels glued to the right edge
+// ---------------- Display pass — LAST BAR ONLY (labels glued to the right edge) ----------------
+if barstate.islast
     int nLab = array.size(zLab)
     if nLab > 0
         for i = 0 to nLab - 1
-            label.set_xy(array.get(zLab, i), bar_index, array.get(zSide, i) == 1 ? array.get(zTop, i) : array.get(zBot, i))
+            drawLabel(i)
     for s = 0 to 5
         label ol = array.get(hLab, s)
         if not na(ol)
