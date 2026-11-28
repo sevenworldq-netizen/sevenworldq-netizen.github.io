@@ -1,86 +1,17 @@
 //@version=5
 // ============================================================================
-// AMANDIRE S&R ZONE DETECTOR — v1.4 DRAFT (research draft on top of Selam's v1.6 LIGHT)
-// *** DRAFT — NOT the live file. Live file is v1.6 (amandire_sr_zone_detector.pine).
-// *** Do NOT overwrite v1.6 or the live copy page with this file.
-// *** Keeps all of v1.6 LIGHT: "Bars to calculate" window, labels drawn only
-//     on the last bar, MTF visibility re-checked only on HTF change.
-// What is new vs v1.6 (28 Nov 2026, deep-research v2):
-//   1. MEASURED DEFAULTS: pivot length 65, half-width 1.0 x ATR (was 10 / 0.5).
-//      This is the best honestly-measured configuration from the backtest
-//      (chart-TF engine, pivot 65 + half-width 1.0, 1-close break, 8 zones/side):
-//        gold 1m tuning  Sep-Nov 2026: respect 74.84%, touch win-rate 52.60%,
-//            big-move (>=2 ATR in 10 bars after first touch) 60.97% (n=433)
-//        gold 1m FRESH    Jun-Sep 2026: respect 73.76%, touch win-rate 56.29%,
-//            big-move 57.06% (n=545)
-//        BTC  1m tuning  Sep-Nov 2026: respect 73.86%, touch win-rate 57.14%,
-//            big-move 60.38% (n=578)
-//      Base (pivot 10 / 0.5) for comparison: respect 66.45/65.10/68.30%,
-//      touch win-rate 35.94/38.48/43.87%, big-move 52.13/49.87/50.61%.
-//      MTF-only v1.3 numbers were gold 65.8% / BTC 70.1% respect.
-//      NOTE: with pivot 65, the first 65 bars of the "Bars to calculate"
-//      window produce no zones (confirmation lag, not repainting).
-//   2. FORMATION-PLACE MARKERS (display only, never a filter): every zone label
-//      now carries its birth tag — pivot candle class (ENGULF/PIN/DOJI/MARU/NORM),
-//      base bars (tight bars in the 15 before the pivot), leg size in ATR,
-//      rejection wick in ATR, volume ratio, REV (strong close rejection),
-//      CCI (CCI(20) extreme at the pivot), W60 (60-min efficiency > 0.31),
-//      VWAP (level near session VWAP). Measured truth: NONE of these predicts
-//      big moves (best single +2pp, none consistent on both windows) — they are
-//      shown so Selam can SEE where each zone was born, not to filter zones.
-//   3. PROVEN tag: after a zone's FIRST bounce, the label gains "PROVEN".
-//      Measured: next touch after a bounce wins 58.25% / 59.14% / 60.88%
-//      (gold tun / gold fresh / BTC, n=451/597/737) vs first-touch 35.94/38.48/
-//      43.87%; after TWO bounces 63.84% / 59.73% / 57.84%. BUT the big-move
-//      rate does NOT rise (51.44/50.92/46.54%) — PROVEN means "bounces again",
-//      not "moves big".
-//   4. OB tag (SMC order block): when price breaks structure (close past the
-//      last confirmed pivot), the zone at the ORIGIN pivot of that leg is
-//      tagged "OB". Measured: OB zones are NOT better — respect 69.75/62.79/
-//      68.76%, big-move 52.65/50.14/54.73%; after the BOS they break 60%+ of
-//      the time. Shown as information only.
-//   5. MSS / FIB touch-time tags: at the FIRST touch the label gains "MSS"
-//      (a structure shift in the last 50 bars, same direction) and/or "FIB"
-//      (the zone sits within 0.5 ATR of the 1.618 extension of that MSS leg,
-//      Fib drawn with 0.963 at the MSS point, i.e. x1.6807). Measured: MSS
-//      zones are NOT better (no-MSS zones score higher); Fib 1.618 adds
-//      +3.1pp respect on gold only, big-move flat. Shown as information only.
-//   6. MTF-only default is OFF in this draft (v1.6 default ON). The measured
-//      numbers above are CHART-TF engine numbers with no HTF filter; turning
-//      MTF-only ON shows a smaller, HTF-agreeing subset whose numbers were
-//      NOT measured for this config.
-// HONEST CEILING — READ THIS: no birth filter in the whole study reaches
-// near-100%. Big-move rate for ANY birth-time filter is ~50-60% (random
-// bands score 54.73/51.22/52.51% — zones do NOT beat random bands on big
-// moves); the oracle ceiling (knowing the future outcome) is ~55%; the
-// best failure separators lift the good-zone share only from ~48/45/49%
-// to ~53-60%. ~1/3 of resolved zones are violated, ~70% of those break on
-// the FIRST touch with no warning feature in the data. The pivot-65 +
-// width-1.0 combination was SELECTED on these same three legs, so its
-// numbers are partly selection — a fresh window is needed to confirm them.
-// This draft is the best measured configuration, NOT a 100% detector.
-// NO-LOOKAHEAD VERIFICATION (bar-by-bar, correction 4):
-//   * Zone birth: confirmed pivot only (ta.pivothigh/low with left=right
-//     = pivLen); the zone appears pivLen bars AFTER the pivot bar, using
-//     ATR/volume/OHLC values read AT the pivot bar ([pivLen] offsets).
-//   * Formation tag: every input is a [pivLen] (or deeper) historical
-//     offset, or a var tracker updated only on closed bars from confirmed
-//     pivots. Nothing reads the current (forming) bar.
-//   * MSS/FIB tags: evaluated at the first touch from the last MSS event,
-//     which happened strictly before the touch bar.
-//   * OB tag: set only when a BOS close has already happened (past bar).
-//   * PROVEN tag: set only after a bounce close has already happened.
-//   * HTF via request.security(..., lookahead=barmerge.lookahead_off);
-//     all logic runs under barstate.isconfirmed (closed bars only) and
-//     inside the "Bars to calculate" window (inRange).
-//   * The post-touch big move is used ONLY in the Python backtest to
-//     MEASURE prediction power; this indicator never uses any future
-//     outcome to decide whether to draw a zone.
-// Kept from v1.6: LIGHT performance (Bars to calculate, last-bar labels,
-// MTF re-check only on HTF change), colour settings, MTF-only view,
-// per-timeframe checkboxes, minimum confluence, all hardening (nz rename,
-// ATR-na guard, hidden-label fix, HTF-higher-than-chart check, guarded
-// for-loops, int(na)).
+// AMANDIRE S&R ZONE DETECTOR — v1.6 (LIGHT — fixes "exceeded your plan's time limit")
+// TradingView message: "Your script exceeded your plan's time limit for making
+// calculations." v1.6 makes the script much cheaper to run:
+//   * Only the last N bars are processed (new input "Bars to calculate", default 1500).
+//   * Label text, label position and label colours are updated ONLY on the last
+//     bar (display work), not on every historical bar.
+//   * Visibility (MTF-only) is re-checked only when an HTF zone actually changes.
+//   * Per-zone visibility is computed only when an event fires, not every bar.
+// Same logic as v1.5: confirmed pivots only, closed bars only, body-close breaks,
+// flip zones, retest watch, scoring, MTF confluence, colour settings, alerts.
+// If it is STILL too slow: lower "Bars to calculate" (e.g. 800) or switch off
+// HTF 3 / HTF 2 in the "Higher timeframes" group.
 //
 // NON-REPAINTING CONTRACT (unchanged)
 //   * Zones are born only from confirmed pivots; frozen once drawn.
@@ -98,9 +29,9 @@ grpH  = "Higher timeframes (MTF)"
 grpD  = "Display"
 grpA  = "Alerts"
 
-pivLen     = input.int(65, "Pivot length (left = right)", minval=2, maxval=100, group=grpZ, tooltip="Zone is born only after this many bars confirm the pivot. v1.4 draft default 65 = the measured best config (long pivots: big-move 57-61%). Larger = stronger, fewer zones, later appearance. This delay is confirmation lag, NOT repainting.")
+pivLen     = input.int(10, "Pivot length (left = right)", minval=2, maxval=30, group=grpZ, tooltip="Zone is born only after this many bars confirm the pivot. Larger = stronger, fewer zones, later appearance. This delay is confirmation lag, NOT repainting.")
 atrLen     = input.int(14, "ATR length", minval=1, group=grpZ)
-halfW      = input.float(1.0, "Zone half-width (x ATR)", minval=0.1, maxval=1.5, step=0.05, group=grpZ, tooltip="Zone = level +/- half-width x ATR(14), frozen at the pivot bar. v1.4 draft default 1.0 = the measured best config (respect 74-76%, touch win-rate 53-57%). Wider = more respect, mechanically — it does NOT raise the big-move rate.")
+halfW      = input.float(0.5, "Zone half-width (x ATR)", minval=0.1, maxval=1.5, step=0.05, group=grpZ, tooltip="Zone = level +/- half-width x ATR(14), frozen at the pivot bar.")
 widthMode  = input.string("Centred", "Width mode", options=["Centred", "Inward"], group=grpZ, tooltip="Centred: level +/- half-width x ATR. Inward: resistance = [high - fuzz, high], support = [low, low + fuzz], fuzz = ATR(7)/2 x multiplier.")
 maxZones   = input.int(8, "Max zones per side", minval=1, maxval=20, group=grpZ)
 mergeDist  = input.float(0.5, "Merge distance (x ATR)", minval=0.0, step=0.1, group=grpZ, tooltip="A new pivot within this distance of an existing same-side zone reinforces it instead of drawing a duplicate.")
@@ -119,11 +50,6 @@ showLabels = input.bool(true, "Show zone labels", group=grpD)
 showEvents = input.bool(true, "Show event labels (BOUNCE / BREAK / RETEST...)", group=grpD)
 strongThr  = input.int(70, "Strong zone threshold (0-100)", minval=1, maxval=100, group=grpD)
 
-grpF  = "Formation (birth info — display only, NOT a filter)"
-showForm   = input.bool(true, "Show formation tag on labels", group=grpF, tooltip="Birth tag: pivot candle class, base bars, leg ATR, wick ATR, volume ratio, REV/CCI/W60/VWAP flags. Display only — none of these predicted big moves in the backtest.")
-showProven = input.bool(true, "Show PROVEN tag after first bounce", group=grpF, tooltip="After a zone's first bounce the label gains PROVEN. Measured next-touch win-rate 58-61% (vs 36-44% first touch); big-move rate does NOT rise.")
-showOb     = input.bool(true, "Show OB tag (order-block origin)", group=grpF, tooltip="When price breaks structure, the zone at the origin pivot of that leg is tagged OB. Measured: OB zones are NOT better — information only.")
-
 alertTouch = input.bool(true, "Alert: touch of a STRONG zone", group=grpA)
 alertBreak = input.bool(true, "Alert: body-close break of any zone", group=grpA)
 alertRetest = input.bool(true, "Alert: retest held", group=grpA)
@@ -131,7 +57,7 @@ alertRetest = input.bool(true, "Alert: retest held", group=grpA)
 grpM  = "MTF-only view"
 
 useChart = input.bool(true, "Chart timeframe counts (1 vote)", group=grpM, tooltip="ON: the chart timeframe itself counts as 1 vote toward agreement. OFF: a zone needs 2 checked HTF zones to reach the minimum 3.")
-mtfOnly = input.bool(false, "MTF zones only (hide chart zones with no HTF agreement)", group=grpM, tooltip="v1.4 draft default OFF: the measured numbers (respect 74-76%, big-move 57-61%) are CHART-TF engine numbers with no HTF filter. ON shows a smaller HTF-agreeing subset whose numbers were NOT measured for this config.")
+mtfOnly = input.bool(true, "MTF zones only (hide chart zones with no HTF agreement)", group=grpM, tooltip="ON: a chart-TF zone is drawn only where the CHECKED timeframes agree with it. OFF: all chart zones are drawn. The engine still tracks hidden zones.")
 minConf = input.int(3, "Minimum confluence to show (1 = chart, +2 per HTF)", minval=1, maxval=7, step=2, group=grpM, tooltip="3 = chart + 1 HTF (or 2 HTFs if the chart box is unchecked). 5 = chart + 2 HTFs. 7 = all 3 HTF zones agree.")
 
 // ---------------- Colour settings ----------------
@@ -182,10 +108,6 @@ var array<int>   zHold    = array.new_int()
 var array<int>   zRetestBar = array.new_int()
 var array<int>   zFirst   = array.new_int()
 var array<bool>  zFlipped = array.new_bool()
-var array<string> zForm   = array.new_string()
-var array<bool>  zProven  = array.new_bool()
-var array<bool>  zOb      = array.new_bool()
-var array<string> zTouch  = array.new_string()
 
 // ---------------- HTF zone storage ----------------
 var array<float> hTop  = array.new_float(6, na)
@@ -203,27 +125,6 @@ ph      = ta.pivothigh(high, pivLen, pivLen)
 pl      = ta.pivotlow(low, pivLen, pivLen)
 atrOk   = not na(atrVal[pivLen]) and not na(atr7[pivLen])
 inRange = bar_index >= last_bar_index - calcBars
-
-// v1.4 draft — formation inputs (all historical offsets only, no lookahead)
-cciVal  = ta.cci(close, 20)
-w60Den  = ta.sum(math.abs(close - close[1]), 60)
-w60Val  = w60Den > 0 ? math.abs(close - close[60]) / w60Den : na
-vwapVal = ta.vwap(hlc3)
-tightBar = (high - low) < 0.5 * atrVal ? 1 : 0
-
-// v1.4 draft — confirmed-pivot trackers (updated on closed bars only)
-var float lastPhLvl = na
-var int   lastPhBar = na
-var float lastPlLvl = na
-var int   lastPlBar = na
-var float prevPhLvl = na
-var int   prevPhBar = na
-var float prevPlLvl = na
-var int   prevPlBar = na
-var int   lastMssBar = na
-var int   lastMssDir = 0
-var float lastMssZero = na
-var float lastMssE = na
 
 // Event flags (reset every bar) — feed alertcondition
 var bool evTouchStrong = false
@@ -267,66 +168,6 @@ confluenceOf(_i) =>
 zoneVisible(_i) =>
     not mtfOnly or confluenceOf(_i) >= minConf
 
-// Formation tag for a zone being born NOW. Every input is a historical
-// offset ([pivLen] = the pivot bar) or a var tracker holding confirmed
-// pivots from earlier bars — nothing reads the forming bar. Mirrors the
-// Python backtest definitions (filter_study.py formation_features):
-// engulf > pin > doji > marubozu > normal; pin = wick >= 2x body and
-// >= 50% of range; base = tight bars (range < 0.5 ATR) in the 15 bars
-// BEFORE the pivot; leg = last opposite pivot -> this pivot, in ATR.
-formationTag(_side, _level) =>
-    float a = atrVal[pivLen]
-    float oP = open[pivLen]
-    float hP = high[pivLen]
-    float lP = low[pivLen]
-    float cP = close[pivLen]
-    float rng = hP - lP
-    float body = math.abs(cP - oP)
-    float upW = hP - math.max(oP, cP)
-    float dnW = math.min(oP, cP) - lP
-    bool prevBull = close[pivLen + 1] > open[pivLen + 1]
-    bool prevBear = close[pivLen + 1] < open[pivLen + 1]
-    bool curBull = cP > oP
-    bool curBear = cP < oP
-    bool bullEng = prevBear and curBull and oP <= close[pivLen + 1] and cP >= open[pivLen + 1]
-    bool bearEng = prevBull and curBear and oP >= close[pivLen + 1] and cP <= open[pivLen + 1]
-    bool engulf = bullEng or bearEng
-    bool pin = false
-    if rng > 0 and body > 0
-        if upW >= 2 * body and upW >= 0.5 * rng
-            pin := true
-        else if dnW >= 2 * body and dnW >= 0.5 * rng
-            pin := true
-    bool doji = rng > 0 and body <= 0.1 * rng
-    bool maru = rng > 0 and body >= 0.9 * rng
-    string cls = engulf ? "ENGULF" : pin ? "PIN" : doji ? "DOJI" : maru ? "MARU" : "NORM"
-    float wickAtr = (_side == 1 ? upW : dnW) / a
-    float rev = na
-    if rng > 0
-        rev := _side == 1 ? (hP - cP) / rng : (cP - lP) / rng
-    int baseBars = int(nz(ta.sum(tightBar, 15)[pivLen + 1], 0))
-    float legAtr = na
-    if _side == 1 and not na(lastPlLvl)
-        legAtr := (_level - lastPlLvl) / a
-    else if _side == -1 and not na(lastPhLvl)
-        legAtr := (lastPhLvl - _level) / a
-    float volR = na
-    if not na(volume[pivLen]) and not na(volSMA[pivLen]) and volSMA[pivLen] > 0
-        volR := volume[pivLen] / volSMA[pivLen]
-    string tag = cls + "·B" + str.tostring(baseBars)
-    tag += "·L" + (na(legAtr) ? "-" : str.tostring(legAtr, "#.#"))
-    tag += "·W" + str.tostring(wickAtr, "#.#")
-    tag += "·V" + (na(volR) ? "-" : str.tostring(volR, "#.#"))
-    if not na(rev) and rev >= 0.67
-        tag += "·REV"
-    if not na(cciVal[pivLen]) and math.abs(cciVal[pivLen]) >= 100
-        tag += "·CCI"
-    if not na(w60Val[pivLen]) and w60Val[pivLen] > 0.31
-        tag += "·W60"
-    if not na(vwapVal[pivLen]) and math.abs(_level - vwapVal[pivLen]) <= 0.5 * a
-        tag += "·VWAP"
-    tag
-
 labelText(_i) =>
     string side = array.get(zSide, _i) == 1 ? "R" : "S"
     string lvl = str.tostring(array.get(zLvl, _i), format.mintick)
@@ -335,11 +176,7 @@ labelText(_i) =>
     string weak = array.get(zPierces, _i) >= 3 ? " WEAK" : ""
     string flip = array.get(zFlipped, _i) ? " FLIP" : ""
     string htfTxt = conf > 1 ? " HTF" : ""
-    string formTxt = showForm ? " [" + array.get(zForm, _i) + "]" : ""
-    string provenTxt = showProven and array.get(zProven, _i) ? " PROVEN✓" : ""
-    string obTxt = showOb and array.get(zOb, _i) ? " OB" : ""
-    string touchTxt = array.get(zTouch, _i)
-    side + " " + lvl + " · T" + str.tostring(array.get(zHits, _i)) + " · P" + str.tostring(array.get(zPierces, _i)) + " · " + str.tostring(sc) + "% · x" + str.tostring(conf) + weak + flip + htfTxt + formTxt + provenTxt + obTxt + touchTxt
+    side + " " + lvl + " · T" + str.tostring(array.get(zHits, _i)) + " · P" + str.tostring(array.get(zPierces, _i)) + " · " + str.tostring(sc) + "% · x" + str.tostring(conf) + weak + flip + htfTxt
 
 // Box colours only (cheap). Label look/text/position is done once, on the last bar.
 refreshBox(_i) =>
@@ -421,12 +258,8 @@ removeZone(_i) =>
     array.remove(zRetestBar, _i)
     array.remove(zFirst, _i)
     array.remove(zFlipped, _i)
-    array.remove(zForm, _i)
-    array.remove(zProven, _i)
-    array.remove(zOb, _i)
-    array.remove(zTouch, _i)
 
-addZone(_side, _level, _vol, _form) =>
+addZone(_side, _level, _vol) =>
     // width — ATR frozen at the PIVOT bar so the zone never breathes
     float top = na
     float bot = na
@@ -505,10 +338,6 @@ addZone(_side, _level, _vol, _form) =>
             array.push(zRetestBar, int(na))
             array.push(zFirst, 0)
             array.push(zFlipped, false)
-            array.push(zForm, _form)
-            array.push(zProven, false)
-            array.push(zOb, false)
-            array.push(zTouch, "")
             refreshBox(array.size(zLvl) - 1)
 
 // ---------------- HTF zone update (latest zone per side per slot) ----------------
@@ -586,47 +415,11 @@ if barstate.isconfirmed and inRange and not na(atrVal)
             for i = 0 to nz0 - 1
                 refreshBox(i)
 
-    // v1.4 draft — MSS / BOS detection (close past the last CONFIRMED pivot).
-    // Runs BEFORE new pivots update the trackers, so it uses the pivots as
-    // they stood on previous bars. lastMss* holds the most recent MSS event
-    // (any direction); Zero = last opposite pivot before the broken pivot.
-    bool mssBull = not na(lastPhLvl) and close > lastPhLvl and close[1] <= lastPhLvl
-    bool mssBear = not na(lastPlLvl) and close < lastPlLvl and close[1] >= lastPlLvl
-    if mssBull or mssBear
-        lastMssBar := bar_index
-        if mssBull
-            lastMssDir := 1
-            lastMssZero := prevPlLvl
-            lastMssE := lastPhLvl
-        else
-            lastMssDir := -1
-            lastMssZero := prevPhLvl
-            lastMssE := lastPlLvl
-        // OB tag: the zone born at the ORIGIN pivot of this leg
-        if showOb
-            int originBar = mssBull ? prevPlBar : prevPhBar
-            if not na(originBar)
-                int nOb = array.size(zLvl)
-                if nOb > 0
-                    for j = 0 to nOb - 1
-                        if array.get(zBorn, j) - pivLen == originBar and not array.get(zOb, j)
-                            array.set(zOb, j, true)
-
-    // New chart-TF zones on confirmed pivots (volume at the PIVOT bar).
-    // The formation tag is computed BEFORE the trackers update, so the leg
-    // reads the last OPPOSITE pivot (the leg into this pivot).
+    // New chart-TF zones on confirmed pivots (volume at the PIVOT bar)
     if not na(ph) and atrOk
-        addZone(1, ph, nz(volume[pivLen], 0), formationTag(1, ph))
-        prevPlBar := lastPlBar
-        prevPlLvl := lastPlLvl
-        lastPhBar := bar_index - pivLen
-        lastPhLvl := ph
+        addZone(1, ph, nz(volume[pivLen], 0))
     if not na(pl) and atrOk
-        addZone(-1, pl, nz(volume[pivLen], 0), formationTag(-1, pl))
-        prevPhBar := lastPhBar
-        prevPhLvl := lastPhLvl
-        lastPlBar := bar_index - pivLen
-        lastPlLvl := pl
+        addZone(-1, pl, nz(volume[pivLen], 0))
 
     // Zone state machines
     int nZones = array.size(zLvl)
@@ -658,20 +451,6 @@ if barstate.isconfirmed and inRange and not na(atrVal)
                     array.set(zHits, i, array.get(zHits, i) + 1)
                     array.set(zState, i, ST_TOUCHED)
                     array.set(zMark, i, bar_index)
-                    // v1.4 draft — touch-time MSS/FIB tags (most recent MSS
-                    // BEFORE this touch bar; direction must match the zone
-                    // side). Fib 1.618 uses Selam's Fib: 0.963 at the MSS
-                    // point, so the level is Zero + (1.618/0.963) x (E - Zero).
-                    if array.get(zTouch, i) == "" and not na(lastMssBar) and lastMssDir == side
-                        string tt = ""
-                        if bar_index - lastMssBar <= 50
-                            tt := " MSS"
-                        if bar_index - lastMssBar <= 100 and not na(lastMssZero) and not na(lastMssE)
-                            float f1618 = lastMssZero + (1.618 / 0.963) * (lastMssE - lastMssZero)
-                            if math.abs(array.get(zLvl, i) - f1618) <= 0.5 * atrVal
-                                tt += " FIB"
-                        if tt != ""
-                            array.set(zTouch, i, tt)
                     if strengthOf(i) * 100 >= strongThr
                         if zoneVisible(i)
                             evTouchStrong := true
@@ -689,13 +468,7 @@ if barstate.isconfirmed and inRange and not na(atrVal)
                 if closeOutsideNear and bar_index - markBar <= 3
                     // BOUNCE: close back outside within 3 bars
                     addEvent(i, "BOUNCE", side == 1 ? top : bot, side == 1, color.new(color.green, 0))
-                    bool firstBounce = array.get(zBounces, i) == 0
                     array.set(zBounces, i, array.get(zBounces, i) + 1)
-                    // v1.4 draft — PROVEN tag on the FIRST bounce (past data
-                    // only: the bounce close already happened). Measured
-                    // next-touch win-rate 58-61% vs 36-44% first touch.
-                    if firstBounce and showProven
-                        array.set(zProven, i, true)
                     if array.get(zFirst, i) == 0
                         array.set(zFirst, i, 1)
                     array.set(zState, i, ST_ACTIVE)
@@ -758,7 +531,7 @@ alertcondition(alertBreak and evBreak, title="Zone break (body close)", message=
 alertcondition(alertRetest and evRetestHeld, title="Retest held", message="Flipped S&R zone retest held on {{ticker}} {{interval}}. Price {{close}}.")
 
 // ---------------- Info table (display only) ----------------
-var table info = table.new(position.top_right, 1, 5, border_width=1)
+var table info = table.new(position.top_right, 1, 4, border_width=1)
 if barstate.islast
     int nRes = zoneCount(1)
     int nSup = zoneCount(-1)
@@ -783,4 +556,3 @@ if barstate.islast
     table.cell(info, 0, 1, row1, text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(info, 0, 2, "No repaint: confirmed pivots only, closed bars only.", text_color=color.new(color.white, 20), bgcolor=color.new(color.black, 20))
     table.cell(info, 0, 3, "Touch ≠ entry. Break = body close past far edge.", text_color=color.new(color.white, 20), bgcolor=color.new(color.black, 20))
-    table.cell(info, 0, 4, "v1.4 DRAFT on v1.6 LIGHT — measured (1m gold/BTC): respect 74-76%, big-move 57-61%. NOT 100% — see header.", text_color=color.new(color.white, 20), bgcolor=color.new(color.black, 20))
