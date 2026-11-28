@@ -1,13 +1,23 @@
 //@version=5
 // ============================================================================
-// AMANDIRE S&R ZONE DETECTOR — v1.1 (fixed)
-// Fixes vs v1.0:
-//   1. All `for i = 0 to size - 1` loops are now guarded by a size > 0 check
-//      (empty arrays made the loop count 0, -1 and array.get() crashed).
-//   2. Variable named `str` renamed to `sc` (it shadowed the str.* namespace).
+// AMANDIRE S&R ZONE DETECTOR — v1.2 (MTF-only view)
+// New vs v1.1 (Selam, 28 Nov 2026 — "show only where the MTFs agree"):
+//   * MTF-only view: with "MTF zones only" ON (default), a chart-TF zone is
+//     DRAWN only where the CHECKED timeframes agree with it (confluence ≥
+//     minimum: 3 = chart + 1 HTF, 5 = chart + 2 HTFs, 7 = all 3 HTFs).
+//     Zones without agreement are hidden — no box, no label, no event
+//     label, no alert — but the engine still tracks them, so if an HTF zone
+//     later overlaps one, it appears. Turn it OFF to see all zones (v1.1).
+//   * One checkbox per timeframe: chart TF here, HTF 1/2/3 in the "Higher
+//     timeframes" group (their timeframes are inputs — set any you want).
+//     Uncheck a timeframe and it no longer counts toward agreement.
+//   * "Minimum confluence" input (1/3/5/7). HTF overlay boxes unchanged.
+// Fixes vs v1.0 (kept):
+//   1. `for` loops guarded by size > 0 (empty array crash).
+//   2. `str` renamed to `sc` (shadowed the str.* namespace).
 //   3. array.push(..., na) on int arrays now uses int(na).
-//   4. HTF requests are ignored when the HTF is not higher than the chart TF.
-//   5. too-close filter no longer lets a later zone overwrite the "suppress" flag.
+//   4. HTF requests ignored when the HTF is not higher than the chart TF.
+//   5. too-close filter no longer lets a later zone overwrite "suppress".
 //
 // NON-REPAINTING CONTRACT (unchanged)
 //   * Zones are born only from confirmed pivots; frozen once drawn.
@@ -48,6 +58,12 @@ strongThr  = input.int(70, "Strong zone threshold (0-100)", minval=1, maxval=100
 alertTouch = input.bool(true, "Alert: touch of a STRONG zone", group=grpA)
 alertBreak = input.bool(true, "Alert: body-close break of any zone", group=grpA)
 alertRetest = input.bool(true, "Alert: retest held", group=grpA)
+
+grpM  = "MTF-only view"
+
+useChart = input.bool(true, "Chart timeframe counts (1 vote)", group=grpM, tooltip="ON: the chart timeframe itself counts as 1 vote toward agreement. OFF: a zone needs 2 checked HTF zones to reach the minimum 3.")
+mtfOnly = input.bool(true, "MTF zones only (hide chart zones with no HTF agreement)", group=grpM, tooltip="ON: a chart-TF zone is drawn only where the CHECKED timeframes agree with it. OFF: all chart zones are drawn, as in v1.1. The engine still tracks hidden zones.")
+minConf = input.int(3, "Minimum confluence to show (1 = chart, +2 per HTF)", minval=1, maxval=7, step=2, group=grpM, tooltip="3 = chart + 1 HTF (or 2 HTFs if the chart box is unchecked). 5 = chart + 2 HTFs. 7 = all 3 HTF zones agree.")
 
 // ---------------- Colours ----------------
 resCol  = color.new(color.red, 0)
@@ -134,13 +150,17 @@ strengthOf(_i) =>
 confluenceOf(_i) =>
     float top = array.get(zTop, _i)
     float bot = array.get(zBot, _i)
-    int c = 1
+    int c = useChart ? 1 : 0
     for s = 0 to 5
         float ht = array.get(hTop, s)
         float hb = array.get(hBot, s)
         if not na(ht) and not na(hb) and ht >= bot and hb <= top
             c += 2
     c
+
+// A chart zone is VISIBLE when MTF-only is off, or its confluence reaches the minimum.
+zoneVisible(_i) =>
+    not mtfOnly or confluenceOf(_i) >= minConf
 
 labelText(_i) =>
     string side = array.get(zSide, _i) == 1 ? "R" : "S"
@@ -153,18 +173,32 @@ labelText(_i) =>
     side + " " + lvl + " · T" + str.tostring(array.get(zHits, _i)) + " · P" + str.tostring(array.get(zPierces, _i)) + " · " + str.tostring(sc) + "% · x" + str.tostring(conf) + weak + flip + htfTxt
 
 refreshLabel(_i) =>
-    if showLabels
-        label l = array.get(zLab, _i)
-        int sc = math.round(strengthOf(_i) * 100)
-        color bg = array.get(zSide, _i) == 1 ? resBg : supBg
-        if array.get(zState, _i) == ST_DONE_BAD
-            bg := deadBg
-        else if array.get(zFlipped, _i)
-            bg := flipBg
-        label.set_text(l, labelText(_i))
-        label.set_xy(l, bar_index, array.get(zSide, _i) == 1 ? array.get(zTop, _i) : array.get(zBot, _i))
+    box b = array.get(zBox, _i)
+    label l = array.get(zLab, _i)
+    int sc = math.round(strengthOf(_i) * 100)
+    bool vis = zoneVisible(_i)
+    color bg = array.get(zSide, _i) == 1 ? resBg : supBg
+    color bcol = array.get(zSide, _i) == 1 ? resCol : supCol
+    if array.get(zState, _i) == ST_DONE_BAD
+        bg := deadBg
+        bcol := deadCol
+    else if array.get(zFlipped, _i)
+        bg := flipBg
+        bcol := flipCol
+    if not vis
+        // hidden zone: fully transparent box + label (engine still tracks it)
+        box.set_border_color(b, color.new(color.white, 100))
+        box.set_bgcolor(b, color.new(color.white, 100))
+        label.set_color(l, color.new(color.white, 100))
+        label.set_textcolor(l, color.new(color.white, 100))
+    else
+        box.set_border_color(b, bcol)
+        box.set_bgcolor(b, bg)
         label.set_color(l, bg)
         label.set_textcolor(l, sc >= strongThr ? color.white : color.new(color.white, 20))
+    if showLabels
+        label.set_text(l, labelText(_i))
+        label.set_xy(l, bar_index, array.get(zSide, _i) == 1 ? array.get(zTop, _i) : array.get(zBot, _i))
 
 removeZone(_i) =>
     box b = array.get(zBox, _i)
@@ -335,6 +369,13 @@ if barstate.isconfirmed and not na(atrVal)
     if ok3
         htfUpdate(2, hp3, lp3, at3, htf3)
 
+    // HTF zones moved: re-evaluate which chart zones the MTF-only view shows
+    if mtfOnly
+        int nz0 = array.size(zLvl)
+        if nz0 > 0
+            for i = 0 to nz0 - 1
+                refreshLabel(i)
+
     // New chart-TF zones on confirmed pivots (volume at the PIVOT bar)
     if not na(ph)
         addZone(1, ph, nz(volume[pivLen], 0))
@@ -356,6 +397,7 @@ if barstate.isconfirmed and not na(atrVal)
             bool bodyBreakPrev = side == 1 ? close[1] > top : close[1] < bot
             bool bodyBreakConf = bodyBreak and (breakConfirm == 1 or bodyBreakPrev)
             bool closeOutsideNear = side == 1 ? close < bot : close > top
+            bool vis = zoneVisible(i)
 
             if st == ST_ACTIVE
                 if hit
@@ -371,7 +413,7 @@ if barstate.isconfirmed and not na(atrVal)
                     array.set(zHits, i, array.get(zHits, i) + 1)
                     array.set(zState, i, ST_TOUCHED)
                     array.set(zMark, i, bar_index)
-                    if strengthOf(i) * 100 >= strongThr
+                    if strengthOf(i) * 100 >= strongThr and vis
                         evTouchStrong := true
                     refreshLabel(i)
                 else if pierce
@@ -379,9 +421,10 @@ if barstate.isconfirmed and not na(atrVal)
                     refreshLabel(i)
                 // break can also happen without a prior hit on this zone
                 if bodyBreakConf
-                    if showEvents
+                    if showEvents and vis
                         label.new(bar_index, side == 1 ? high : low, "BREAK", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
-                    evBreak := true
+                    if vis
+                        evBreak := true
                     array.set(zState, i, ST_FLIPPED)
                     array.set(zMark, i, bar_index)
                     array.set(zSide, i, -side)
@@ -398,7 +441,7 @@ if barstate.isconfirmed and not na(atrVal)
                 int markBar = nz(array.get(zMark, i), bar_index)
                 if closeOutsideNear and bar_index - markBar <= 3
                     // BOUNCE: close back outside within 3 bars
-                    if showEvents
+                    if showEvents and vis
                         label.new(bar_index, side == 1 ? top : bot, "BOUNCE", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
                     array.set(zBounces, i, array.get(zBounces, i) + 1)
                     if array.get(zFirst, i) == 0
@@ -407,9 +450,10 @@ if barstate.isconfirmed and not na(atrVal)
                     array.set(zMark, i, int(na))
                     refreshLabel(i)
                 else if bodyBreakConf
-                    if showEvents
+                    if showEvents and vis
                         label.new(bar_index, side == 1 ? high : low, "BREAK", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
-                    evBreak := true
+                    if vis
+                        evBreak := true
                     array.set(zState, i, ST_FLIPPED)
                     array.set(zMark, i, bar_index)
                     array.set(zSide, i, -side)
@@ -430,7 +474,7 @@ if barstate.isconfirmed and not na(atrVal)
                 int markBar2 = nz(array.get(zMark, i), bar_index)
                 if bar_index - markBar2 > 20
                     // break with no retest in 20 bars = violated
-                    if showEvents
+                    if showEvents and vis
                         label.new(bar_index, side == 1 ? top : bot, "NO RETEST", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.gray, 0), textcolor=color.white, size=size.small)
                     array.set(zState, i, ST_DONE_BAD)
                     box b3 = array.get(zBox, i)
@@ -439,7 +483,7 @@ if barstate.isconfirmed and not na(atrVal)
                     refreshLabel(i)
                 else if overlaps and bar_index > markBar2
                     // retest: price returned into the flipped zone
-                    if showEvents
+                    if showEvents and vis
                         label.new(bar_index, side == 1 ? bot : top, "RETEST", style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(color.orange, 0), textcolor=color.white, size=size.small)
                     array.set(zState, i, ST_RETEST)
                     array.set(zRetestBar, i, bar_index)
@@ -450,7 +494,7 @@ if barstate.isconfirmed and not na(atrVal)
                 if bar_index > rtBar
                     bool failed = side == 1 ? close < bot : close > top
                     if failed
-                        if showEvents
+                        if showEvents and vis
                             label.new(bar_index, side == 1 ? high : low, "RETEST FAILED", style=side == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
                         array.set(zState, i, ST_DONE_BAD)
                         box b4 = array.get(zBox, i)
@@ -460,9 +504,10 @@ if barstate.isconfirmed and not na(atrVal)
                     else
                         array.set(zHold, i, array.get(zHold, i) + 1)
                         if array.get(zHold, i) >= 3
-                            if showEvents
+                            if showEvents and vis
                                 label.new(bar_index, side == 1 ? bot : top, "HOLD ✓", style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
-                            evRetestHeld := true
+                            if vis
+                                evRetestHeld := true
                             array.set(zState, i, ST_ACTIVE)
                             array.set(zMark, i, int(na))
                             refreshLabel(i)
@@ -488,12 +533,23 @@ if barstate.islast
     int nRes = zoneCount(1)
     int nSup = zoneCount(-1)
     int nStrong = 0
+    int nVis = 0
+    int nHid = 0
     int nAll = array.size(zLvl)
     if nAll > 0
         for i = 0 to nAll - 1
-            if strengthOf(i) * 100 >= strongThr
-                nStrong += 1
-    table.cell(info, 0, 0, "Amandire SR Zones — pivot " + str.tostring(pivLen) + " · ±" + str.tostring(halfW) + " ATR", text_color=color.white, bgcolor=color.new(color.black, 20))
-    table.cell(info, 0, 1, "Zones live: " + str.tostring(nRes) + " R / " + str.tostring(nSup) + " S · Strong (≥" + str.tostring(strongThr) + "): " + str.tostring(nStrong), text_color=color.white, bgcolor=color.new(color.black, 20))
+            if zoneVisible(i)
+                nVis += 1
+                if strengthOf(i) * 100 >= strongThr
+                    nStrong += 1
+            else
+                nHid += 1
+    string title0 = "Amandire SR Zones — pivot " + str.tostring(pivLen) + " · ±" + str.tostring(halfW) + " ATR"
+    string row1 = "Zones live: " + str.tostring(nRes) + " R / " + str.tostring(nSup) + " S · Strong (≥" + str.tostring(strongThr) + "): " + str.tostring(nStrong)
+    if mtfOnly
+        title0 := title0 + " · MTF-only (conf ≥ " + str.tostring(minConf) + ")"
+        row1 := "MTF-only view · shown: " + str.tostring(nVis) + " · hidden (no HTF): " + str.tostring(nHid) + " · Strong shown: " + str.tostring(nStrong)
+    table.cell(info, 0, 0, title0, text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(info, 0, 1, row1, text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(info, 0, 2, "No repaint: confirmed pivots only, closed bars only.", text_color=color.new(color.white, 20), bgcolor=color.new(color.black, 20))
     table.cell(info, 0, 3, "Touch ≠ entry. Break = body close past far edge.", text_color=color.new(color.white, 20), bgcolor=color.new(color.black, 20))
