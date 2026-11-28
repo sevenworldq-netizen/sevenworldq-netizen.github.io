@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ቀጥታ ትርጉም v1.5 — አውርድ</title>
+<style>
+body{font-family:sans-serif;max-width:560px;margin:40px auto;padding:0 16px;line-height:1.7;color:#222}
+h1{font-size:26px}
+button{font-size:20px;padding:14px 28px;background:#0a7d4d;color:#fff;border:0;border-radius:10px;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+#status{margin-top:16px;font-size:15px;white-space:pre-line}
+.muted{color:#666;font-size:14px}
+code{word-break:break-all;font-size:12px}
+</style>
+</head>
+<body>
+<h1>📱 ቀጥታ ትርጉም v1.5</h1>
+<p>የቀጥታ ትርጉም app — YouTube ቪዲዮን በእንግሊዝኛ (ወይም አረብኛ፣ ስፓኒሽ፣ ቻይንኛ፣ ሩሲያኛ፣ ዕብራይስጥ፣ ጀርመን) እያዳመጥክ በአማርኛ ይተረጉምልሃል።</p>
+<p><b>ስሪት፦</b> 1.5 &nbsp;•&nbsp; <b>መጠን፦</b> 22.25 MB &nbsp;•&nbsp; <b>ለ Samsung A03s (armv7)</b></p>
+<button id="dl" onclick="downloadApk()">⬇ አውርድ</button>
+<div id="status"></div>
+<h2>እንዴት እንደምትጭን</h2>
+<ol>
+<li>የድሮውን “ቀጥታ ትርጉም” app መጀመሪያ አራግፍ (Settings → Apps → ቀጥታ ትርጉም → Uninstall)።</li>
+<li>ከላይ ያለውን <b>አውርድ</b> ቁልፍ ጫን — download እስኪጠናቀቅ ጠብቅ።</li>
+<li>የወረደውን ፋይል ጫን → <b>Install</b> ጫን።</li>
+<li>“Play Protect” ካስጠነቀቀ <b>Install anyway</b> ጫን።</li>
+<li>App drawer ውስጥ አረንጓዴ iconውን (“ቀጥታ ትርጉም”) ፈልግ — ወይም “ቀጥታ” ብለህ ፈልግ።</li>
+</ol>
+<p class="muted">SHA-256፦ <code>ce3b1b51e040b2ac87e86e7f8e163a29bb438f537bdb3f3ebc9cf3481be5cac7</code></p>
+<script>
+const PARTS = [];
+for (let i = 1; i <= 15; i++) PARTS.push("LiveTranslator-1.5-armv7.apk.b64.p" + String(i).padStart(2, "0"));
+const EXPECTED_SIZE = 22251245;
+const EXPECTED_SHA = "ce3b1b51e040b2ac87e86e7f8e163a29bb438f537bdb3f3ebc9cf3481be5cac7";
+const FILENAME = "LiveTranslator-1.5-armv7.apk";
+
+function b64ToBytes(b64){
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function hex(buf){
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
+async function downloadApk(){
+  const btn = document.getElementById("dl");
+  const st = document.getElementById("status");
+  btn.disabled = true;
+  try {
+    let b64 = "";
+    for (let i = 0; i < PARTS.length; i++) {
+      st.textContent = "እያወረድኩ ነው… " + (i+1) + "/15";
+      const r = await fetch(PARTS[i]);
+      if (!r.ok) throw new Error("ክፍል " + (i+1) + " አልተገኘም (HTTP " + r.status + ")");
+      b64 += await r.text();
+    }
+    st.textContent = "ፋይሉን እያዘጋጀሁ ነው…";
+    const bytes = b64ToBytes(b64);
+    if (bytes.length !== EXPECTED_SIZE) throw new Error("መጠኑ ትክክል አይደለም: " + bytes.length);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    if (hex(digest) !== EXPECTED_SHA) throw new Error("SHA-256 አልተዛመደም — እንደገና ሞክር");
+    const blob = new Blob([bytes], {type: "application/vnd.android.package-archive"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = FILENAME;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    st.textContent = "✅ ወርዷል! (" + (bytes.length/1048576).toFixed(2) + " MB, SHA-256 ተረጋግጧል)\nአሁን የወረደውን ፋይል ጫን → Install።";
+  } catch (e) {
+    st.textContent = "❌ ስህተት: " + e.message + "\nእንደገና ሞክር።";
+  }
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>
